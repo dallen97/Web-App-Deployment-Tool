@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <title>OMG! WADT</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'wadtapp/style.css' %}">
+
+  </head>
+  <body>
+	  {% if container_catalog %}
+	  <ol class="catalog">
+		  {% for container in container_catalog %}
+		<li class="entry">
+		  <h2><a href="{% url 'workbench' container.id %}">{{ container.name }}</a></h2>
+		  <p class="status">Status: <span class="indicator">{{ container.status }}</span></p>
+		  <p class="description">{{ container.description }}</p>
+		</li>
+		  {% endfor %}
+	  </ol>
+	  {% else %}
+	  	<p>No containers are available.</p>
+	{% endif %}
+
+  </body>
+</html>
