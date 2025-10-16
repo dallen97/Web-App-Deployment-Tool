@@ -1,0 +1,10 @@
+/*Add more too root*/
+:root {
+  --font-family: monospace;
+  background-color: rgb(29,29,29);
+}
+
+button {
+  position: relative;
+  top: -500px;
+}
