@@ -11,6 +11,8 @@ function LandingPage() {
       <p>
         <b>Cyber Security Skills</b>
       </p>
+
+      <Button>This is a Button</Button>
     </div>
   );
 }
