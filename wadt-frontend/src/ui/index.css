@@ -1,5 +1,6 @@
 /*Add more too root*/
+@import url("bootswatch/dist/darkly/bootstrap.min.css");
+
+/* Customize themes in more detail under root*/
 :root {
-  --font-family: monospace;
-  background-color: rgb(29,29,29);
 }

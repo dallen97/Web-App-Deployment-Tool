@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./ui/index.css";
-import "bootstrap/dist/css/bootstrap.min.css";
 import LandingPage from "./pages/LandingPage";
 
 import router from "./routes.tsx";
