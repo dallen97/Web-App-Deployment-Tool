@@ -1,10 +1,17 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./ui/index.css";
+import LandingPage from "./pages/LandingPage";
 
-createRoot(document.getElementById('root')!).render(
+import router from "./routes.tsx";
+
+
+//Until Routes are properly implemented, for testing,
+//import the file you want to look at, then
+//add the name of the file under <StrictMode>
+
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
-  </StrictMode>,
-)
+    <LandingPage />
+  </StrictMode>
+);
