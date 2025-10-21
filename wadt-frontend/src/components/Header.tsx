@@ -2,6 +2,7 @@ import Button from "react-bootstrap/Button";
 import React from "react";
 import Dropdown from "../ui/Dropdown";
 import { Breadcrumb } from "react-bootstrap";
+import {Link} from 'react-router-dom' // Use this for links on page headers
 
 function Header(): React.ReactElement {
   return (
@@ -29,9 +30,9 @@ function Header(): React.ReactElement {
             </a>
           </li>
           <li className="nav-item ms-auto">
-            <a className="nav-link" href="#">
+            <Link className="nav-link" to="/login">
               <Button variant="dark">Login</Button>
-            </a>
+            </Link>
           </li>
         </ul>
       </nav>
