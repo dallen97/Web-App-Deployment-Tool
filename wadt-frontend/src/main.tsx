@@ -1,7 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
+import { RouterProvider } from "react-router-dom"; // new
 import "./ui/index.css";
-import LandingPage from "./pages/LandingPage";
+//import LandingPage from "./pages/LandingPage"; // Temp commenting this to see if routing works
 
 import router from "./routes.tsx";
 
@@ -12,6 +13,6 @@ import router from "./routes.tsx";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <LandingPage />
+    <RouterProvider router={router} />
   </StrictMode>
 );
