@@ -3,7 +3,7 @@ import Dropdown from "react-bootstrap/Dropdown";
 function Menu() {
   return (
     <Dropdown>
-      <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+      <Dropdown.Toggle variant="light" id="dropdown-basic">
         Dropdown Button
       </Dropdown.Toggle>
 

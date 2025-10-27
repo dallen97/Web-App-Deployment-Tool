@@ -1,6 +1,6 @@
 /*Add more too root*/
-@import url("bootswatch/dist/darkly/bootstrap.min.css");
-
+/*Imported Cyborg theme from bootswatch*/
+@import "bootswatch/dist/cyborg/bootstrap.min.css";
 /* Customize themes in more detail under root*/
 :root {
 }

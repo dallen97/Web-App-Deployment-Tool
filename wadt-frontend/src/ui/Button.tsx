@@ -8,7 +8,7 @@ interface Props {
 const Button = ({ children }: Props) => {
   // bootstrap dark button theme
   return (
-    <button type="button" className="btn btn-dark">
+    <button type="button" className="btn btn-light">
       {children}
     </button>
   );

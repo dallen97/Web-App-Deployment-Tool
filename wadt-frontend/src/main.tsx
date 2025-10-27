@@ -6,7 +6,6 @@ import "./ui/index.css";
 
 import router from "./routes.tsx";
 
-
 //Until Routes are properly implemented, for testing,
 //import the file you want to look at, then
 //add the name of the file under <StrictMode>
