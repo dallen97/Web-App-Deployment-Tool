@@ -19,6 +19,12 @@ def workbench(request, container_id):
     context = {"container": container}
     return render(request, "wadtapp/workbench.html", context)
 
+try:
+    client = docker.from_env()
+except DockerException:
+    print("Error: Could not connect to Docker")
+    client = None
+    
 @require_http_methods(["POST"])
 def register_user(request):
     #create user account
@@ -72,3 +78,89 @@ def logout_user(request):
     #logs out user and removes session data for user
     logout(request)
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
+
+@require_http_methods(["GET"])
+def get_containers(request):
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)
+    
+    running_containers = client.containers.list(all=True)
+    container_data = []
+    for c in all_containers:
+        #unknown only if ID is not found
+        user_id = c.labels.get("wadt.user_id", "unknown")
+
+        container_data.append({
+            "id": c.short_id,
+            "name": c.name,
+            "image": c.image.tags[0] if c.image.tags else 'unknown',
+            "status": c.status,
+            "user_id": user_id 
+        })
+    return JsonResponse(container_data, safe=False)
+
+@require_http_methods(["POST"])
+def start_container(request):
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)      
+    try:
+        body = json.loads(request.body)
+        image_name = body.get('imageName')
+        user_id = body.get('userID')
+        
+        if not image_name:
+            return JsonResponse({"error": "imageName is required"}, status=400)
+        
+        client.images.pull(image_name)
+        new_container = client.containers.run(image_name, detach=True, labels={"wadt.user_id": str(user_id)})
+        
+        return JsonResponse({
+            "status": "success",
+            "message": f"Container {new_container.name} started for user {user_id}",
+            "id": new_container.short_id
+        }, status=201)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+@require_http_methods(["POST"])
+def stop_container(request, container_id):
+    try:
+        container = client.containers.get(container_id)
+        container.stop()
+        return JsonResponse({"status": "success", "message": f"Container {container_id} stopped."})
+    except docker.errors.NotFound:
+        return JsonResponse({"error": "Container not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+    
+@require_http_methods(["POST"])
+def restart_container(request, container_id):
+    #used if somebody needs to refresh container to apply changes
+    try:
+        container = client.containers.get(container_id)
+        container.restart()
+        return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
+    except docker.errors.NotFound:
+        return JsonResponse({"error": "Container not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+@require_http_methods(["POST"])
+def reset_container(request, container_id):
+    #used if docker container breaks
+    try:
+        old_container = client.containers.get(container_id)
+        image_name = old_container.image.tags[0]
+        old_container.stop()
+        old_container.remove()
+        new_container = client.containers.run(image_name, detach=True)
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Container reset successfully.",
+            "new_id": new_container.short_id
+        }, status=201)
+    except docker.errors.NotFound:
+        return JsonResponse({"error": "Container not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
