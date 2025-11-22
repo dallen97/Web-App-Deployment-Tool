@@ -41,7 +41,7 @@ def register_user(request):
         
         user = User.objects.create_user(username=username, password=password)
 
-        return JsonResonse({'status': 'Success', 'message': 'User created successfully', 'user_id': user.id}, status=201)
+        return JsonResponse({'status': 'Success', 'message': 'User created successfully', 'user_id': user.id}, status=201)
 
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON.'}, status=400)
@@ -52,7 +52,7 @@ def register_user(request):
 def login_user(request):
     #logs in a user
     try:
-        data = json.loasd(request.body)
+        data = json.loads(request.body)
         username = data.get('username')
         password = data.get('password')
 
