@@ -3,4 +3,23 @@
 @import "bootswatch/dist/cyborg/bootstrap.min.css";
 /* Customize themes in more detail under root*/
 :root {
+
 }
+/* Formats text inside input boxes for login/register*/
+.loginForm input::placeholder {
+color: var(--bs-primary);
+font-weight: 900;
+font-size: 1.2rem;
+font-family: monospace;
+opacity: 1;
+}
+/* Formats text inside input boxes for login/register*/
+.loginForm input {
+color: var(--bs-primary);
+font-weight: 900;
+font-size: 1.2rem;
+font-family: monospace;
+opacity: 1;
+}
+
+

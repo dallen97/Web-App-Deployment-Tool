@@ -1,6 +1,6 @@
 import { Container } from 'react-bootstrap';
-import {useState } from "react";
-import { Link } from 'react-router-dom'; // Need this for Header links
+import {useState, useEffect } from "react";
+import { Link, useNavigate } from 'react-router-dom'; // Need this for Header links
 import {Form, Button} from "react-bootstrap"
 
 //TODO:
@@ -10,21 +10,27 @@ import {Form, Button} from "react-bootstrap"
     // Password strength checker?
     
 function RegisterPage(){
-    const [showPassword, setShowPassword] = useState(false); // Show or not show password
+    const [showPassword, setShowPassword] = useState(false) // Show or not show password
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
 
     return(
         <Container>
-            {/*Titleblock*/}         
-            <h1 className="display-4 font-monospace text-center">
+            {/*Titleblock}         
+            <h1 className="display-4 font-monospace text-center" style = {{marginTop: "20vh"}}>
                 Get started with WADT
-            </h1>
+            </h1>*/}
             <div className= "d-flex justify-content-center align-items-center">
+            {/*Title*/}
+            <Form className = "loginForm rounded-3 p-5 pt-2 border border-secondary" style = {{marginTop: "15vh"}}>
+                <h1 className = "font-monospace text-center">
+                    Get Started with WADT
+                </h1>
 
-            {/*Fill out username block*/}
-            <Form className = "loginForm rounded p-4 border border-secondary">
-                <Form.Group className="mb-2 lh-sm"
+                {/*Fill out username block*/}
+                <Form.Group className="mb-4"
                 controlId="formUsername">
-                    <Form.Label className = "font-monospace fs-4">Username</Form.Label>
                     <Form.Control 
                         type="text"
                         placeholder = "Choose a Username">
@@ -32,9 +38,8 @@ function RegisterPage(){
                 </Form.Group>
 
                 {/*Create password block (first)*/}
-                <Form.Group className = "mb-2 lh-sm"
+                <Form.Group className = "mb-4"
                 controlId ="formPassword">
-                    <Form.Label className = "font-monospace fs-4">Enter Password</Form.Label>
                     <Form.Control 
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
@@ -45,11 +50,10 @@ function RegisterPage(){
                 {/*Confirm password*/}
                 <Form.Group className = "mb-2 lh-sm"
                 controlId = "formConfirmPassword">
-                    <Form.Label className = "font-monospace fs-4">Confirm Password</Form.Label>
                     <Form.Control
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder = "Re-enter Password">
+                        placeholder = "Confirm Password">
                     </Form.Control>
                 </Form.Group>
 
