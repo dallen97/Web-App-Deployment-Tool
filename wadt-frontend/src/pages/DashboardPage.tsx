@@ -7,7 +7,12 @@ function DashboardPage()
 {
     return (
         <h1>
-            <HeaderComponent />
+            <HeaderComponent 
+            buttons={[
+                {text: "Home", link: "/"},
+                {text: "Sign in", link: "/login"},
+            ]}
+            />
             <Docker />
         </h1>
     )
