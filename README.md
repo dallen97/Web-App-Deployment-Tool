@@ -6,6 +6,11 @@ Note that this project follows along with the structure of the [Django tutorials
 ### Python + Django + other packages
 You need Python. I'm using 3.13.3
 
+If you are using MacOS: 
+```
+$ brew install python@3.13
+```
+
 Create a virtual environment for the project to install dependencies.
 On my system (Ubuntu 25.04), this sequence of commands will create a virtual
 environment in the directory `.venv` and activate it. Run something like
@@ -25,6 +30,12 @@ On my system, I had to do the following:
 1. Access the postgresql server as user postgres:
 
    `$ sudo -u postgres psql`
+
+   For MacOS, use the following command instead:
+
+   `$ brew services start postgresql@15`
+   `$ export PATH="/usr/local/opt/postgresql@15/bin:$PATH"`
+   `$ psql postgres`
 
 2. In the command prompt of psql, create a user named `wadt` with permissions to login and create databases
 
@@ -46,7 +57,21 @@ On my system, I had to do the following:
 
    `$ sudo systemctl restart postgresql.service`
 
-As long as you have the `.env` file, the webapp should now have access to the database. Run `python manage.py migrate` in the root directory of the project to set up the tables according to the model in the project.
+As long as you have the `.env` file, the webapp should now have access to the database. 
+
+Your `.env` file will require the following fields:
+```
+DEBUG=True
+SECRET_KEY=your-secret-key-here
+# Database Configuration
+DB_NAME=wadtdb
+DB_USER=wadt
+DB_PASSWORD=your_password_here
+DB_HOST=localhost
+DB_PORT=5432
+```
+
+Run `python manage.py migrate` in the root directory of the project to set up the tables according to the model in the project.
 
 The database won't have any data in it for you by default, but you can easily add some by going to the admin interface. It's at `/admin` after the project's url.
 
