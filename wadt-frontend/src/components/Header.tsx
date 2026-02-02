@@ -1,14 +1,4 @@
-import Button from "react-bootstrap/Button";
-import React, { useEffect, useState } from "react";
-import Dropdown from "../ui/Dropdown";
-import { Link } from "react-router-dom"; // Use this for links on page headers
 
-// I need to make the header file dynamic so it could do the following
-/*
-  Take in number of buttons, and for each button
-    - Link -> string
-    - text -> string
-*/
 
 export interface HeaderButton {
   link: string;
@@ -19,7 +9,7 @@ export interface HeaderProps {
   buttons?: HeaderButton[];
 }
 
-const Header: React.FC<HeaderProps> = ({ buttons = [] }) => {
+const Header = ({ buttons = [] }:HeaderProps) => {
   return (
     <div data-bs-theme="dark">
       <nav className="navbar navbar-expand-lg navbar-dark bg-dark">

@@ -1,20 +1,32 @@
 import Button from 'react-bootstrap/Button';
-import Header from '../components/Header';
 
+export interface DockerProps{
+    name: string;
+    startlink: string;
+    stoplink: string;
+    restartlink: string;
+};
 
-function Docker() {
+export interface DockerList{
+    docker?: DockerProps[];
+};
+
+const Docker = ( {docker = []}:DockerList) =>{
     return (
-        <div>
+        <>
             <div style={{fontSize: '20px', marginTop: '100px'}}>
-                This is the docker container <Button variant="primary">Start</Button><Button variant="primary">Stop</Button> <br/>
-                This is the docker container <Button variant="primary">Start</Button><Button variant="primary">Stop</Button> <br/>
-                This is the docker container <Button variant="primary">Start</Button><Button variant="primary">Stop</Button> <br/>
-                This is the docker container <Button variant="primary">Start</Button><Button variant="primary">Stop</Button> <br/>
-                This is the docker container <Button variant="primary">Start</Button><Button variant="primary">Stop</Button> <br/>
+                {docker.map((d, i) => (
+                    <div key={i} style={{marginTop:'50px'}}>
+                        {d.name} container
+                        <Button variant="primary" href={d.startlink}>Start</Button>
+                        <Button variant="primary" href={d.stoplink}>Stop</Button>
+                        <Button variant="primary" href={d.restartlink}>Restart</Button>
+                    </div>
+                ))}
             </div>
-        </div>
-        
+            
+        </>
     )
-}
+};
 
 export default Docker;
