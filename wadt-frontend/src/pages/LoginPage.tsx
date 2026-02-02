@@ -1,15 +1,83 @@
 import { Container } from 'react-bootstrap';
 import {useState } from "react";
-import { Link } from 'react-router-dom'; // Need this for Header links
-import {Form, Button} from "react-bootstrap"
+import { Link, useNavigate } from 'react-router-dom'; // Need this for Header links
+import {Form, Button, Alert} from "react-bootstrap"
 
-// TODO: 
-    // Connect endpoints
-    // Add background image/scene so it doesnt look like the void
-    // Make start button actually do something
+
+// Interfaces for type safety
+interface LoginPayload 
+{
+    username: string;
+    password: string;
+}
+interface LoginSuccessResponse 
+{
+    status: string;
+    message: string;
+    user_id: number;
+    username: string;
+}
+interface LoginErrorResponse 
+{
+    error: string;
+}
+
+type LoginResponse = LoginSuccessResponse | LoginErrorResponse;
 
 function LoginPage(){
     const [showPassword, setShowPassword] = useState(false); // Show or not show password
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError('');
+
+    // Missing field
+    if (!username || !password) {
+        setError('Username and password are required');
+        return;
+    }
+
+    setIsLoading(true);
+
+    try {
+        // Create payload
+        const payload: LoginPayload =
+        {
+            username,
+            password
+        };
+
+        const response = await fetch('/auth/login/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const data = await response.json() as LoginResponse;
+
+        if (response.ok) {
+            const successData = data as LoginSuccessResponse;
+            console.log('Login successful:', successData.message);
+            console.log('User ID:', successData.user_id);
+            navigate('/'); 
+        } else {
+            const errorData = data as LoginErrorResponse;
+            setError(errorData.error);
+        }
+    } catch (err) {
+        console.error('Login error:', err);
+        setError('Unable to login.');
+    } finally {
+        setIsLoading(false);
+    }
+    };
 
     return(
         <Container>
@@ -20,17 +88,29 @@ function LoginPage(){
             */}
             <div className= "d-flex justify-content-center align-items-center">
 
-            <Form className = "loginForm rounded-3 p-5 pt-2 border border-secondary" style = {{marginTop: "15vh"}}>
+            <Form className = "loginForm rounded-3 p-5 pt-2 border border-secondary" style = {{marginTop: "15vh"}}
+                onSubmit={handleSubmit}>
                 <h1 className = "font-monospace text-center">
                     Login
                 </h1>
+                
+                {/*Error display */}
+                {error && (
+                <Alert 
+                    variant="danger" onClose={() => setError('')} dismissible>
+                        {error}
+                </Alert>)}
+
                 {/*Username block*/}
                 <Form.Group className="mb-4"
                 controlId="formUsername">
                     {/*<Form.Label className = "font-monospace fs-4"></Form.Label>*/}
                     <Form.Control 
                         type="text"
-                        placeholder = "Username">
+                        placeholder = "Username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        disabled={isLoading}>
                     </Form.Control>
                 </Form.Group>
 
@@ -41,7 +121,10 @@ function LoginPage(){
                     <Form.Control 
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder = "Password">
+                        placeholder = "Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        disabled={isLoading}>
                     </Form.Control>
                 </Form.Group>
 
@@ -62,13 +145,14 @@ function LoginPage(){
                         className = "font-monospace fs-4"
                         variant="secondary" 
                         type="submit"
-                        size="lg">
-                        Start
+                        size="lg"
+                        disabled={isLoading}>
+                        {isLoading ? 'Logging in...' : 'Start'}
                     </Button>
 
                 </div>
 
-                {/*Link to login page*/}
+                {/*Link to registration page*/}
                 <div className="text-center mt-2 lh-sm">
                     <span className="font-monospace fs-5">Don't have an account? </span>
                     <br />

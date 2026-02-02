@@ -1,19 +1,100 @@
 import { Container } from 'react-bootstrap';
-import {useState, useEffect } from "react";
+import {useState} from "react";
 import { Link, useNavigate } from 'react-router-dom'; // Need this for Header links
-import {Form, Button} from "react-bootstrap"
+import {Form, Button, Alert} from "react-bootstrap"
 
-//TODO:
-    // Add checks for username taken
-    // Connect to endpoints
-    // Make pretty (looks like buns)
-    // Password strength checker?
-    
+
+// Interfaces for type safety
+interface RegisterPayload 
+{
+    username: string;
+    password: string;
+}
+interface RegisterSuccessResponse 
+{
+    status: string;
+    message: string;
+    user_id: number;
+}
+interface RegisterErrorResponse 
+{
+    error: string;
+}
+
+type RegisterResponse = RegisterSuccessResponse | RegisterErrorResponse;
+
+
+// API call
 function RegisterPage(){
     const [showPassword, setShowPassword] = useState(false) // Show or not show password
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
+    const [passwordConfirmation, setPasswordConfirmation] = useState('');
+    const [successMessage, setSuccessMessage] = useState('');
+    const [isLoading, setIsLoading] = useState(false); //message while loading
+    const [error, setError] = useState('');
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        setError('');
+        setSuccessMessage('');
+
+        // Password / form checking
+        if (!username || !password || !passwordConfirmation) 
+            {
+            setError('All fields are required');
+            return;
+        }
+
+        if (password !== passwordConfirmation) {
+            setError('Passwords do not match');
+            return;
+        }
+
+        setIsLoading(true);
+
+        try {
+            // Create payload
+            const payload: RegisterPayload = 
+            {
+                username,
+                password
+            };
+    
+            const response = await fetch('/auth/register/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload)
+            });
+            
+            const data = await response.json() as RegisterResponse;
+
+            // Direct to login page if working correctly
+            if (response.ok) 
+                {
+                    const successData = data as RegisterSuccessResponse;
+                    console.log('User created successfully:', successData.message);
+                    console.log('User ID:', successData.user_id);
+                    setSuccessMessage('Account created successfully!')
+                } 
+            else 
+                {
+                    const errorData = data as RegisterErrorResponse;
+                    setError(errorData.error);
+                }
+        } 
+        catch (err) 
+        {
+            console.error('Registration error:', err);
+        } 
+        finally 
+        {
+            setIsLoading(false);
+        }
+    };
 
     return(
         <Container>
@@ -23,17 +104,37 @@ function RegisterPage(){
             </h1>*/}
             <div className= "d-flex justify-content-center align-items-center">
             {/*Title*/}
-            <Form className = "loginForm rounded-3 p-5 pt-2 border border-secondary" style = {{marginTop: "15vh"}}>
+            <Form 
+                className = "loginForm rounded-3 p-5 pt-2 border border-secondary" 
+                style = {{marginTop: "15vh"}}
+                onSubmit = {handleSubmit}>
                 <h1 className = "font-monospace text-center">
                     Get Started with WADT
                 </h1>
+
+                {/*Success display*/}
+                {successMessage && (
+                <Alert
+                    variant = "success" onClose={() => setSuccessMessage('')} dismissible>
+                        {successMessage}
+                </Alert>)}
+
+                {/*Error display */}
+                {error && (
+                <Alert 
+                    variant="danger" onClose={() => setError('')} dismissible>
+                        {error}
+                </Alert>)}
 
                 {/*Fill out username block*/}
                 <Form.Group className="mb-4"
                 controlId="formUsername">
                     <Form.Control 
                         type="text"
-                        placeholder = "Choose a Username">
+                        placeholder = "Choose a Username"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        disabled={isLoading}>
                     </Form.Control>
                 </Form.Group>
 
@@ -43,7 +144,10 @@ function RegisterPage(){
                     <Form.Control 
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder = "Enter Password">
+                        placeholder = "Enter Password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)} 
+                        disabled={isLoading}>
                     </Form.Control>
                 </Form.Group>
 
@@ -53,7 +157,10 @@ function RegisterPage(){
                     <Form.Control
                         type={showPassword ? "text" : "password"}
                         autoComplete="new-password"
-                        placeholder = "Confirm Password">
+                        placeholder = "Confirm Password"
+                        value={passwordConfirmation} 
+                        onChange={(e) => setPasswordConfirmation(e.target.value)}
+                        disabled={isLoading}>
                     </Form.Control>
                 </Form.Group>
 
@@ -68,22 +175,37 @@ function RegisterPage(){
                         onChange={() => setShowPassword((prev) => !prev)} /> 
                 </Form.Group>
 
-                {/*Sign up button*/}
+                {/*Create account button*/}
                 <div className="d-grid">
-                    <Button
-                        className = "font-monospace fs-4 "
-                        variant="secondary" 
-                        type="submit"
-                        size="lg">
-                        Create Account
-                    </Button>
+                    {successMessage === '' ? (
+                        <Button
+                            className = "font-monospace fs-4 "
+                            variant="secondary" 
+                            type="submit"
+                            size="lg"
+                            disabled={isLoading}>
+                            {isLoading ? 'Creating Account...' : 'Create Account'}
+                        </Button>
+                    ) : (
+                        <Button
+                            className = "font-monospace fs-4 "
+                            variant="success" 
+                            size="lg"
+                            onClick={() => navigate('/login')}>
+                            Login
+                        </Button>
+                    )}
                 </div>
 
-                {/*Link to login page*/}
+                {/*Link to login page without an account*/}
                 <div className="text-center mt-2 lh-sm">
-                    <span className="font-monospace fs-5">Already have an account? </span>
-                    <br />
-                    <Link to="/login" className="font-monospace fs-5">Click here to login</Link>
+                {successMessage.length === 0 && (
+                    <>
+                        <span className="font-monospace fs-5">Already have an account? </span>
+                        <br />
+                        <Link to="/login" className="font-monospace fs-5">Click here to login</Link>
+                    </>
+                )}
                 </div>
             </Form>
             </div>        
