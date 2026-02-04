@@ -1,5 +1,3 @@
-import React from "react";
-
 //Making the button dynamic
 interface Props {
   children: string;

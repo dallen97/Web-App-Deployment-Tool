@@ -3,6 +3,11 @@ import Header from '../components/Header';
 
 const HeaderComponent = Header as unknown as React.ComponentType<any>;
 
+
+// Write API connections here
+
+
+
 function DashboardPage()
 {
     return (
