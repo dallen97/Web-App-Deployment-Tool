@@ -11,6 +11,11 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 
 from .models import Container
 
+MAX_CONTAINERS = 4
+CONTAINER_MEM_LIMIT = "512M"
+CONTAINER_CPU_PERIOD = 100000
+CONTAINER_CPU_QUOTA = 50000
+
 #initialize docker client
 try:
     client = docker.from_env()
@@ -38,9 +43,8 @@ def register_user(request):
 
         if not all([username, password]):
             return JsonResponse({'error': 'Username and Password Required'}, status=400)
-        
         if User.objects.filter(username=username).exists():
-            return JsonResponse({'error': 'Username already taken'}, status=409)
+            return JsonResponse({'error': 'Username unavailable'}, status=409)
         
         user = User.objects.create_user(username=username, password=password)
 
@@ -91,18 +95,21 @@ def get_containers(request):
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
-    all_containers = client.containers.list(all=True)
     user_id_str = str(request.user.id)
-    container_data = []
-    for c in all_containers:
-        if c.labels.get("wadt.user_id") == user_id_str:
+    try:
+        user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
+        container_data = []
+        for c in user_containers:
+            image_tag = c.image.tags[0] if c.image.tags else 'unknown'
             container_data.append({
                 "id": c.short_id,
                 "name": c.name,
-                "image": c.image.tags[0] if c.image.tags else 'unknown',
+                "image": image_tag,
                 "status": c.status,
             })
-    return JsonResponse(container_data, safe=False)
+        return JsonResponse(container_data, safe=False)
+    except APIError:
+         return JsonResponse({"error": "Failed to fetch containers"}, status=500)
 
 @require_http_methods(["POST"])
 @login_required
@@ -117,28 +124,51 @@ def start_container(request):
         if not image_name:
             return JsonResponse({"error": "imageName is required"}, status=400)
         
+        existing_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
+        if len(existing_containers) >= MAX_CONTAINERS:
+             return JsonResponse({"error": f"Quota exceeded. Max {MAX_CONTAINERS} containers allowed."}, status=429)
+
         client.images.pull(image_name)
-        new_container = client.containers.run(image_name, detach=True, labels={"wadt.user_id": user_id})
+        new_container = client.containers.run(
+            image_name, 
+            detach=True, 
+            labels={"wadt.user_id": user_id_str},
+            mem_limit=CONTAINER_MEM_LIMIT,
+            cpu_period=CONTAINER_CPU_PERIOD,
+            cpu_quota=CONTAINER_CPU_QUOTA
+        )
         
         return JsonResponse({
             "status": "success",
             "message": f"Container {new_container.name} started for user {user_id}",
             "id": new_container.short_id
         }, status=201)
+    except APIError as e:
+        return JsonResponse({"error": "Docker API Error: " + str(e)}, status=500)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+
+def _get_user_container(user, container_id):
+    """Helper to safely retrieve a container owned by the user"""
+    try:
+        container = client.containers.get(container_id)
+        # Verify ownership
+        if container.labels.get("wadt.user_id") != str(user.id):
+            return None, JsonResponse({"error": "Unauthorized"}, status=403)
+        return container, None
+    except NotFound:
+        return None, JsonResponse({"error": "Container not found"}, status=404)
 
 @require_http_methods(["POST"])
 @login_required
 def stop_container(request, container_id):
+    container, error_response = _get_user_container(request.user, container_id)
+    if error_response: 
+        return error_response
+
     try:
-        container = client.containers.get(container_id)
-        if container.labels.get("wadt.user_id") != str(request.user.id):
-            return JsonResponse({"error": "Unauthorized"}, status = 403)
         container.stop()
         return JsonResponse({"status": "success", "message": f"Container {container_id} stopped."})
-    except docker.errors.NotFound:
-        return JsonResponse({"error": "Container not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
     
@@ -146,14 +176,13 @@ def stop_container(request, container_id):
 @login_required
 def restart_container(request, container_id):
     #used if somebody needs to refresh container to apply changes
+    container, error_response = _get_user_container(request.user, container_id)
+    if error_response: 
+        return error_response
+
     try:
-        container = client.containers.get(container_id)
-        if container.labels.get("wadt.user_id") != str(request.user.id):
-            return JsonResponse({"error": "Unauthorized"}, status = 403)
         container.restart()
         return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
-    except docker.errors.NotFound:
-        return JsonResponse({"error": "Container not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
@@ -161,27 +190,34 @@ def restart_container(request, container_id):
 @login_required
 def reset_container(request, container_id):
     #used if docker container breaks
+    container, error_response = _get_user_container(request.user, container_id)
+    if error_response: 
+        return error_response
+
     try:
-        old_container = client.containers.get(container_id)
-
-        if old_container.labels.get("wadt.user_id") != str(request.user.id):
-            return JsonResponse({"error": "Unauthorized"}, status = 403)
+        if not container.image.tags:
+             return JsonResponse({"error": "Cannot reset, original image tag not indentified"}, status=400)
         
-        image_name = old_container.image.tags[0]
+        image_name = container.image.tags[0]
+        user_id_str = str(request.user.id)
 
-        if not image_name:
-            return JsonResponse({"error": "Cannot identify image"}, status = 400)
+        container.stop()
+        container.remove()
 
-        old_container.stop()
-        old_container.remove()
-        new_container = client.containers.run(image_name, detach=True, labels={"wadt.user_id": str(request.user.id)})
+        # Re-apply resource limits on reset
+        new_container = client.containers.run(
+            image_name, 
+            detach=True, 
+            labels={"wadt.user_id": user_id_str},
+            mem_limit=CONTAINER_MEM_LIMIT,
+            cpu_period=CONTAINER_CPU_PERIOD,
+            cpu_quota=CONTAINER_CPU_QUOTA
+        )
 
         return JsonResponse({
             "status": "success",
             "message": f"Container reset successfully.",
             "new_id": new_container.short_id
         }, status=201)
-    except docker.errors.NotFound:
-        return JsonResponse({"error": "Container not found"}, status=404)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
