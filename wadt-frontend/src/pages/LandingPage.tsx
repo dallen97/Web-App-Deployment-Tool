@@ -18,7 +18,13 @@ const HeaderComponent = Header as unknown as React.ComponentType<any>;
 function LandingPage() {
   return (
     <div className="">
-      <HeaderComponent />
+      <HeaderComponent
+      buttons={[
+        {text: "Home", link: "/"},
+        {text: "Dashboard", link: "/dashboard"},
+        {text: "Sign in", link: "/login"},
+      ]}
+       />
       <br />
       <br />
       <div style={{ marginTop: "25px" }}>

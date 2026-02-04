@@ -52,7 +52,7 @@ function LoginPage(){
             password
         };
 
-        const response = await fetch('/auth/login/', {
+        const response = await fetch('/wadtapp/auth/login/', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
