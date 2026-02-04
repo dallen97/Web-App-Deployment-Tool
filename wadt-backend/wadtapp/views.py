@@ -51,7 +51,7 @@ def register_user(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
-@require_http_methods(["Post"])
+@require_http_methods(["POST"])
 @ensure_csrf_cookie
 def login_user(request):
     #logs in a user

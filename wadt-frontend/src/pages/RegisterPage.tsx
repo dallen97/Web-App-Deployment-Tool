@@ -62,7 +62,7 @@ function RegisterPage(){
                 password
             };
     
-            const response = await fetch('/auth/register/', {
+            const response = await fetch('/wadtapp/auth/register/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
