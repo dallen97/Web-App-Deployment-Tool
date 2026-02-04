@@ -1,6 +1,6 @@
 import json
 import docker
-from docker.errors import DockerException, NotFound
+from docker.errors import DockerException, NotFound, ImageNotFound, APIError
 from django.shortcuts import get_object_or_404, render
 from django.http import JsonResponse
 from django.contrib.auth.models import User
