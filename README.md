@@ -3,6 +3,19 @@
 ## Starting Development
 Note that this project follows along with the structure of the [Django tutorials](https://docs.djangoproject.com/en/5.2/intro/tutorial01/).
 
+### Frontend
+
+Most of the necessary files are already in the wadt-frontend folder, you just need to install the dependencies yourself.
+```
+$ npm install 
+```
+
+After installing the dependencies, go to the frontend folder and run 'npm run dev' to start up the frontend instance
+```
+$ cd wadt-frontend
+$ npm run dev
+```
+
 ### Python + Django + other packages
 You need Python. I'm using 3.13.3
 
