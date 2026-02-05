@@ -19,7 +19,7 @@ function DashboardPage()
                 {name: "PyGoat", imageName: "pygoat/pygoat", startlink: "/", stoplink: "/", restartlink: "/"},
                 {name: "Juice Shop", imageName: "bkimminich/juice-shop", startlink: "/", stoplink: "/", restartlink: "/"},
                 {name: "Grafana", imageName: "grafana/grafana:8.3.0", startlink: "/", stoplink: "/", restartlink: "/"},
-                {name: "Hello World", imageName: "hello-world", startlink: "/", stoplink: "/", restartlink: "/"},
+                {name: "Damn Vulnerable Web App", imageName: "vulnerables/web-dvwa", startlink: "/", stoplink: "/", restartlink: "/"},
 
             ]}
             />
