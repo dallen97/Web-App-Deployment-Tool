@@ -1,54 +1,146 @@
+import { useState } from 'react';
 import Button from 'react-bootstrap/Button';
+import Spinner from 'react-bootstrap/Spinner';
 
 export interface DockerProps{
     name: string;
     startlink: string;
     stoplink: string;
     restartlink: string;
+    imageName: string; 
 };
 
 export interface DockerList{
     docker?: DockerProps[];
 };
 
-const handleSubmit = async function hadleSelect(){
-    fetch('wadtapp/containers/start/', {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-        imageName: 'pygoat/pygoat'
-        // this is the image name, change it out for other images as needed
-        /* other image names
-        
-        bkimminich/juice-shop
-        grafana/grafana:8.3.0
-        pygoat/pygoat
-        */
-    })
-})
-    .then(response => response.json())
-    .then(data => console.log('Success:', data))
-    .catch(error => console.error('Error:', error));
-    }
+const Docker = ({ docker = [] }: DockerList) => {
+    // State to track status: 'idle', 'loading', or 'ready' for each container by name
+    const [containerStatus, setContainerStatus] = useState<{ [key: string]: 'idle' | 'loading' | 'ready' }>({});
+    
+    // State to store the dynamic URL (e.g., localhost:55001) once ready
+    const [containerUrls, setContainerUrls] = useState<{ [key: string]: string }>({});
 
-const Docker = ( {docker = []}:DockerList) =>{
+    // 1. Start Container
+    const handleStart = async (imageName: string, containerName: string) => {
+        // Immediately show spinner
+        setContainerStatus(prev => ({ ...prev, [containerName]: 'loading' }));
+
+        try {
+            const response = await fetch('wadtapp/containers/start/', {
+                method: 'POST',
+                credentials: 'include', 
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    imageName: imageName
+                })
+            });
+            
+            const data = await response.json();
+
+            if (response.ok && data.id) {
+                console.log("Container started, waiting for port...", data.id);
+                // Begin polling the new endpoint to see when the port is open
+                pollForReadiness(data.id, containerName);
+            } else {
+                console.error('Start failed:', data);
+                // Reset to start button on failure
+                setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+        }
+    };
+
+    // 2. Poll for Readiness (The "Health Check")
+    const pollForReadiness = (containerId: string, containerName: string) => {
+        const intervalId = setInterval(async () => {
+            try {
+                // Using the new RESTful URL structure: containers/<id>/check-ready/
+                const response = await fetch(`wadtapp/containers/${containerId}/check-ready/`, {
+                    method: 'POST', 
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+
+                if (data.ready) {
+                    console.log("Container is ready at:", data.url);
+                    clearInterval(intervalId); // Stop checking
+                    setContainerUrls(prev => ({ ...prev, [containerName]: data.url }));
+                    setContainerStatus(prev => ({ ...prev, [containerName]: 'ready' }));
+                }
+                // If data.ready is false, the loop simply continues...
+                
+            } catch (error) {
+                console.error("Polling error", error);
+                clearInterval(intervalId); // Stop checking on network error
+                setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+            }
+        }, 2000); // Check every 2 seconds
+    };
+
+    // 3. Open in New Tab
+    const handleView = (containerName: string) => {
+        const url = containerUrls[containerName];
+        if (url) window.open(url, '_blank');
+    };
+
     return (
         <>
-            <div style={{fontSize: '20px', marginTop: '100px'}}>
+            <div style={{ fontSize: '20px', marginTop: '100px' }}>
                 {docker.map((d, i) => (
-                    <div key={i} style={{marginTop:'50px'}}>
+                    <div key={i} style={{ marginTop: '50px' }}>
                         {d.name} container
-                        <Button variant="primary" onClick={handleSubmit}>Start</Button>
-                        <Button variant="primary" href={d.stoplink}>Stop</Button>
-                        <Button variant="primary" href={d.restartlink}>Restart</Button>
+                                                
+                        {/* 1. IDLE STATE: Show Start Button */}
+                        {(!containerStatus[d.name] || containerStatus[d.name] === 'idle') && (
+                            <Button 
+                                variant="primary" 
+                                onClick={() => handleStart(d.imageName, d.name)}
+                                style={{ marginLeft: '10px' }}
+                            >
+                                Start
+                            </Button>
+                        )}
+
+                        {/* 2. LOADING STATE: Show Spinner */}
+                        {containerStatus[d.name] === 'loading' && (
+                            <Button variant="primary" disabled style={{ marginLeft: '10px' }}>
+                                <Spinner
+                                    as="span"
+                                    animation="border"
+                                    size="sm"
+                                    role="status"
+                                    aria-hidden="true"
+                                />
+                                <span className="visually-hidden">Loading...</span>
+                            </Button>
+                        )}
+
+                        {/* 3. READY STATE: Show Open App Button */}
+                        {containerStatus[d.name] === 'ready' && (
+                            <Button 
+                                variant="success" 
+                                onClick={() => handleView(d.name)} 
+                                style={{ marginLeft: '10px' }}
+                            >
+                                Open App
+                            </Button>
+                        )}
+
+                        {/* Standard Stop/Restart Buttons */}
+                        <Button variant="danger" href={d.stoplink} style={{ marginLeft: '10px' }}>Stop</Button>
+                        <Button variant="warning" href={d.restartlink} style={{ marginLeft: '10px' }}>Restart</Button>
                     </div>
                 ))}
             </div>
-            
         </>
-    )
+    );
 };
 
 export default Docker;

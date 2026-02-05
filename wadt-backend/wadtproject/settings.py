@@ -127,3 +127,8 @@ STATIC_URL = "static/"
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+SESSION_COOKIE_SAMESITE = 'Lax'      # Allows cookies between localhost ports
+SESSION_COOKIE_SECURE = False        # Allows cookies without HTTPS
+SESSION_COOKIE_HTTPONLY = True       # Security best practice (keep this True)
+SESSION_COOKIE_AGE = 86400           # 24 Hours

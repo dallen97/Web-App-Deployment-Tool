@@ -1,5 +1,8 @@
 import json
 import docker
+import socket
+import urllib.request
+from urllib.error import URLError, HTTPError
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError
 from django.shortcuts import get_object_or_404, render
 from django.http import JsonResponse
@@ -117,13 +120,18 @@ def get_containers(request):
          return JsonResponse({"error": "Failed to fetch containers"}, status=500)
 
 @require_http_methods(["POST"])
-@login_required
 def start_container(request):
+    # check if user is logged in
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    
     client = get_docker_client()
 
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
+        user_id_str = str(request.user.id)
+        
         body = json.loads(request.body)
         image_name = body.get('imageName')
         user_id = str(request.user.id)
@@ -218,7 +226,7 @@ def restart_container(request, container_id):
 @login_required
 def reset_container(request, container_id):
     client = get_docker_client()
-    
+
     #used if docker container breaks
     container, error_response = _get_user_container(request.user, container_id)
     if error_response: 
@@ -251,3 +259,64 @@ def reset_container(request, container_id):
         }, status=201)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+    
+@require_http_methods(["POST", "GET"]) 
+def check_container_ready(request, container_id):     
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    try:        
+        client = get_docker_client()
+        if not client:
+            return JsonResponse({"error": "Docker service unavailable"}, status=503)
+
+        # use the ID from the URL
+        try:
+            container = client.containers.get(container_id)
+        except Exception:
+            return JsonResponse({"ready": False, "error": "Container not found"}, status=404)
+        
+        # 1. check status
+        if container.status != 'running':
+            return JsonResponse({"ready": False, "status": container.status})
+
+        # 2. check socket 
+        ports_dict = container.attrs['NetworkSettings']['Ports']
+        host_port = None
+        
+        if ports_dict:
+            for internal_port, bindings in ports_dict.items():
+                if bindings:
+                    host_port = bindings[0]['HostPort']
+                    break
+        
+        if not host_port:
+             return JsonResponse({"ready": False, "reason": "No ports exposed"})
+
+        # --- THE NEW HTTP CHECK ---
+        target_url = f"http://localhost:{host_port}"
+        
+        try:
+            # try to actually open the URL. 
+            # timeout=1 ensures we don't hang if the app is slow.
+            with urllib.request.urlopen(target_url, timeout=1) as response:
+                # If we get here, we got a 200 OK (or similar success)
+                return JsonResponse({"ready": True, "url": target_url})
+                
+        except HTTPError as e:
+            # IMPORTANT: A 401 (Unauthorized) or 403 (Forbidden) means the APP IS RUNNING!
+            # It just means we need to log in. So this counts as "Ready".
+            # Only 500 errors might suggest we should wait longer, but usually 
+            # any HTTP response means the server is up.
+            return JsonResponse({"ready": True, "url": target_url})
+            
+        except URLError as e:
+            # This catches "Connection Refused" or "Server Not Found"
+            # This means the app is NOT ready yet.
+            return JsonResponse({"ready": False, "reason": "App starting..."})
+        except Exception as e:
+            # Any other crash means not ready
+            return JsonResponse({"ready": False, "reason": str(e)})
+
+    except Exception as e:
+        return JsonResponse({"ready": False, "error": str(e)})

@@ -11,4 +11,5 @@ urlpatterns = [
     path('containers/start/', views.start_container, name='start_container'),
     path('containers/<str:container_id>/stop/', views.stop_container, name='stop_container'),
     path('containers/<str:container_id>/restart/', views.restart_container, name='restart_container'),
+    path('containers/<str:container_id>/check-ready/', views.check_container_ready, name='check_container_ready'),
 ]

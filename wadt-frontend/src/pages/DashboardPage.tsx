@@ -5,20 +5,6 @@ const HeaderComponent = Header as unknown as React.ComponentType<any>;
 
 function DashboardPage()
 {
-    const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-        fetch('wadtapp/start_container/', {
-    method: 'POST',
-    headers: {
-        'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-        imageName: 'nginx:latest'
-    })
-})
-.then(response => response.json())
-.then(data => console.log('Success:', data))
-.catch(error => console.error('Error:', error));
-    }
     return (
         <div>
             <HeaderComponent 
@@ -30,10 +16,10 @@ function DashboardPage()
             />
             <Docker 
             docker={[
-                {name: "Docker1", startlink: "/", stoplink: "/", restartlink: "/"},
-                {name: "Docker2", startlink: "/", stoplink: "/", restartlink: "/"},
-                {name: "Docker3", startlink: "/", stoplink: "/", restartlink: "/"},
-                {name: "Docker4", startlink: "/", stoplink: "/", restartlink: "/"},
+                {name: "PyGoat", imageName: "pygoat/pygoat", startlink: "/", stoplink: "/", restartlink: "/"},
+                {name: "Juice Shop", imageName: "bkimminich/juice-shop", startlink: "/", stoplink: "/", restartlink: "/"},
+                {name: "Grafana", imageName: "grafana/grafana:8.3.0", startlink: "/", stoplink: "/", restartlink: "/"},
+                {name: "Hello World", imageName: "hello-world", startlink: "/", stoplink: "/", restartlink: "/"},
 
             ]}
             />
