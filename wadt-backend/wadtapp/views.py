@@ -124,24 +124,43 @@ def start_container(request):
         if not image_name:
             return JsonResponse({"error": "imageName is required"}, status=400)
         
+        '''
         existing_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
         if len(existing_containers) >= MAX_CONTAINERS:
              return JsonResponse({"error": f"Quota exceeded. Max {MAX_CONTAINERS} containers allowed."}, status=429)
+        '''
 
         client.images.pull(image_name)
         new_container = client.containers.run(
             image_name, 
-            detach=True, 
-            labels={"wadt.user_id": user_id_str},
+            detach=True,
+            publish_all_ports=True, 
+            #labels={"wadt.user_id": user_id_str},
             mem_limit=CONTAINER_MEM_LIMIT,
             cpu_period=CONTAINER_CPU_PERIOD,
             cpu_quota=CONTAINER_CPU_QUOTA
         )
+
+        new_container.reload()
+
+        # 4. Define the 'ports' variable here
+        ports_dict = new_container.attrs['NetworkSettings']['Ports']
+        external_url = "No exposed ports"
+        
+        # 5. Find the first valid port mapping
+        if ports_dict:
+            for internal_port, bindings in ports_dict.items():
+                if bindings:
+                    # bindings is a list like [{'HostIp': '0.0.0.0', 'HostPort': '55001'}]
+                    host_port = bindings[0]['HostPort']
+                    external_url = f"http://localhost:{host_port}"
+                    break # Stop after finding the first one
         
         return JsonResponse({
             "status": "success",
             "message": f"Container {new_container.name} started for user {user_id}",
-            "id": new_container.short_id
+            "id": new_container.short_id,
+            "external_url": external_url
         }, status=201)
     except APIError as e:
         return JsonResponse({"error": "Docker API Error: " + str(e)}, status=500)
