@@ -12,4 +12,5 @@ urlpatterns = [
     path('containers/<str:container_id>/stop/', views.stop_container, name='stop_container'),
     path('containers/<str:container_id>/restart/', views.restart_container, name='restart_container'),
     path('containers/<str:container_id>/check-ready/', views.check_container_ready, name='check_container_ready'),
+    path('auth/csrf/', views.get_csrf_token, name='get_csrf_token'),
 ]

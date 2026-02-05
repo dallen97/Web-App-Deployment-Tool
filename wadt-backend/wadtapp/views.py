@@ -11,6 +11,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.http import JsonResponse
 
 from .models import Container
 
@@ -263,6 +265,31 @@ def reset_container(request, container_id):
 @require_http_methods(["POST", "GET"]) 
 def check_container_ready(request, container_id):     
     if not request.user.is_authenticated:
+        print("\n!!! 401 DETECTED !!!")
+        print(f"Container ID: {container_id}")
+        
+        # 1. Did we get ANY cookies?
+        raw_cookie = request.META.get('HTTP_COOKIE', 'No Cookie Header Found')
+        print(f"1. Raw Cookie Header: {raw_cookie}")
+        
+        # 2. Did Django parse a sessionid?
+        session_key = request.COOKIES.get('sessionid')
+        print(f"2. Parsed Session ID: {session_key}")
+        
+        # 3. Check if this session actually exists in the DB
+        if session_key:
+            from django.contrib.sessions.models import Session
+            try:
+                s = Session.objects.get(session_key=session_key)
+                print(f"3. DB Check: Session FOUND. Expire date: {s.expire_date}")
+                print(f"4. Session Data: {s.get_decoded()}")
+            except Session.DoesNotExist:
+                print("3. DB Check: Session NOT FOUND in database (It may have expired or been deleted)")
+        else:
+            print("3. DB Check: Skipped (No session key provided)")
+            
+        print("!!! END DEBUG !!!\n")
+        
         return JsonResponse({"error": "Unauthorized"}, status=401)
 
     try:        
@@ -320,3 +347,11 @@ def check_container_ready(request, container_id):
 
     except Exception as e:
         return JsonResponse({"ready": False, "error": str(e)})
+    
+@ensure_csrf_cookie
+def get_csrf_token(request):
+    """
+    This view does nothing but ensure the CSRF cookie is sent 
+    to the browser.
+    """
+    return JsonResponse({'message': 'CSRF cookie set'})
