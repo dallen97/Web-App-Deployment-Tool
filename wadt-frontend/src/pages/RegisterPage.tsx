@@ -1,8 +1,22 @@
 import { Container } from 'react-bootstrap';
-import {useState} from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from 'react-router-dom'; // Need this for Header links
 import {Form, Button, Alert} from "react-bootstrap"
 
+function getCookie(name: string) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 
 // Interfaces for type safety
 interface RegisterPayload 
@@ -35,6 +49,15 @@ function RegisterPage(){
     const [error, setError] = useState('');
     const navigate = useNavigate();
 
+    // get csrf cookie
+    useEffect(() => {
+        // fetch this endpoint just to force Django to send the 'Set-Cookie' header
+        fetch('/wadtapp/auth/csrf/', { 
+            method: 'GET', 
+            credentials: 'include' 
+        }).catch(err => console.log("CSRF Ping failed (server might be down):", err));
+    }, []);
+
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setError('');
@@ -66,7 +89,9 @@ function RegisterPage(){
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') || '',
                 },
+                credentials: 'include',
                 body: JSON.stringify(payload)
             });
             

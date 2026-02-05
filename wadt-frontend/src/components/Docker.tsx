@@ -14,6 +14,21 @@ export interface DockerList{
     docker?: DockerProps[];
 };
 
+function getCookie(name: string) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
+
 const Docker = ({ docker = [] }: DockerList) => {
     // State to track status: 'idle', 'loading', or 'ready' for each container by name
     const [containerStatus, setContainerStatus] = useState<{ [key: string]: 'idle' | 'loading' | 'ready' }>({});
@@ -32,6 +47,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                 credentials: 'include', 
                 headers: {
                     'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') || ''
                 },
                 body: JSON.stringify({
                     imageName: imageName
@@ -63,8 +79,22 @@ const Docker = ({ docker = [] }: DockerList) => {
                 const response = await fetch(`wadtapp/containers/${containerId}/check-ready/`, {
                     method: 'POST', 
                     credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' }
+                    headers: { 'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken') || '' 
+                    }
                 });
+
+                if (response.status === 401) {
+                    console.error("!!! FRONTEND 401 DETECTED !!!");
+                    console.log("Timestamp:", new Date().toISOString());
+                    console.log("Current Browser Cookies:", document.cookie);
+                    console.log("Am I trying to send credentials? YES (include)");
+                    
+                    // Stop polling so we don't spam the logs
+                    clearInterval(intervalId);
+                    setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+                    return;
+                }
                 
                 const data = await response.json();
 
