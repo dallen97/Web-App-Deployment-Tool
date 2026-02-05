@@ -163,8 +163,22 @@ def start_container(request):
         # 4. Define the 'ports' variable here
         ports_dict = new_container.attrs['NetworkSettings']['Ports']
         external_url = "No exposed ports"
+
+
+        target_port = None
+
+        # Identify which internal port we WANT based on the image
+        # this fix is for when multiple ports are exposed, we pick the right one
+        if 'dvwa' in image_name.lower():
+            target_port = '80/tcp'       # DVWA lives here
+    
+            
+        # Try to find that specific port first
+        if target_port and target_port in ports_dict and ports_dict[target_port]:
+            host_port = ports_dict[target_port][0]['HostPort']
+            external_url = f"http://localhost:{host_port}"
         
-        # 5. Find the first valid port mapping
+        # Find the first valid port mapping
         if ports_dict:
             for internal_port, bindings in ports_dict.items():
                 if bindings:

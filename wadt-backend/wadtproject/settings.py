@@ -153,3 +153,5 @@ SESSION_SAVE_EVERY_REQUEST = False # Prevent race conditions
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False     # Allow HTTP
 SESSION_COOKIE_HTTPONLY = True    # Keep True for security
+SESSION_COOKIE_NAME = 'wadt_sessionid' 
+CSRF_COOKIE_NAME = 'wadt_csrftoken'
