@@ -80,7 +80,7 @@ function LoginPage(){
                 credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken') || '',
+                    'X-CSRFToken': getCookie('wadt_csrftoken') || '',
                 },
                 body: JSON.stringify(payload)
             });

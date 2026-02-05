@@ -47,7 +47,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                 credentials: 'include', 
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken') || ''
+                    'X-CSRFToken': getCookie('wadt_csrftoken') || ''
                 },
                 body: JSON.stringify({
                     imageName: imageName
@@ -80,7 +80,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                     method: 'POST', 
                     credentials: 'include',
                     headers: { 'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken') || '' 
+                        'X-CSRFToken': getCookie('wadt_csrftoken') || '' 
                     }
                 });
 

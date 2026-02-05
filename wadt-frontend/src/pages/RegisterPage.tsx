@@ -89,7 +89,7 @@ function RegisterPage(){
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('csrftoken') || '',
+                    'X-CSRFToken': getCookie('wadt_csrftoken') || '',
                 },
                 credentials: 'include',
                 body: JSON.stringify(payload)
