@@ -17,11 +17,14 @@ CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
 
 #initialize docker client
-try:
-    client = docker.from_env()
-except DockerException:
-    print("Error: Could not connect to Docker")
-    client = None
+def get_docker_client():
+    try:
+        # Check if docker is responsive
+        client = docker.from_env()
+        client.ping() 
+        return client
+    except (DockerException, APIError):
+        return None
 
 def index(request):
     container_catalog = Container.objects.order_by("-name")
@@ -91,6 +94,8 @@ def logout_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
+    client = get_docker_client()
+
     #now returns containers only relevant to the current user, will implement one for all containers later
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
@@ -114,6 +119,8 @@ def get_containers(request):
 @require_http_methods(["POST"])
 @login_required
 def start_container(request):
+    client = get_docker_client()
+
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
@@ -124,11 +131,11 @@ def start_container(request):
         if not image_name:
             return JsonResponse({"error": "imageName is required"}, status=400)
         
-        '''
+        
         existing_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
         if len(existing_containers) >= MAX_CONTAINERS:
              return JsonResponse({"error": f"Quota exceeded. Max {MAX_CONTAINERS} containers allowed."}, status=429)
-        '''
+    
 
         client.images.pull(image_name)
         new_container = client.containers.run(
@@ -169,6 +176,8 @@ def start_container(request):
 
 def _get_user_container(user, container_id):
     """Helper to safely retrieve a container owned by the user"""
+    client = get_docker_client()
+    
     try:
         container = client.containers.get(container_id)
         # Verify ownership
@@ -208,6 +217,8 @@ def restart_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
+    client = get_docker_client()
+    
     #used if docker container breaks
     container, error_response = _get_user_container(request.user, container_id)
     if error_response: 
