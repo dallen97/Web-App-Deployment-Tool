@@ -3,6 +3,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import Dashboard from "./pages/DashboardPage";
+import Account from "./pages/AccountPage";
 
 //Create routes for the website
 
@@ -21,14 +22,20 @@ const router = createBrowserRouter([
   // Registration Page
   {
     path: "/register",
-    element: <RegisterPage />
+    element: <RegisterPage />,
   },
 
   // Dashboard Page
   {
     path: "/dashboard",
-    element: <Dashboard />
-  }
+    element: <Dashboard />,
+  },
+
+  // Account Page
+  {
+    path: "/account",
+    element: <Account />,
+  },
 ]);
 
 export default router;
