@@ -141,12 +141,23 @@ def start_container(request):
         if not image_name:
             return JsonResponse({"error": "imageName is required"}, status=400)
         
+        # at the container we are starting to our running list
+        running_containers = client.containers.list(
+            filters={
+                "label": f"wadt.user_id={user_id_str}",
+                "status": "running" 
+            }
+        )
         
-        existing_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
-        if len(existing_containers) >= MAX_CONTAINERS:
-             return JsonResponse({"error": f"Quota exceeded. Max {MAX_CONTAINERS} containers allowed."}, status=429)
-    
-
+        # check if we hit max already
+        if len(running_containers) >= MAX_CONTAINERS:
+             debug_list = [{ "id": c.short_id, "name": c.name, "status": c.status } for c in running_containers]
+             
+             return JsonResponse({
+                 "error": f"Quota exceeded. You are running {len(running_containers)}/{MAX_CONTAINERS} apps.",
+                 "debug_containers": debug_list
+             }, status=429)
+        
         client.images.pull(image_name)
         new_container = client.containers.run(
             image_name, 
