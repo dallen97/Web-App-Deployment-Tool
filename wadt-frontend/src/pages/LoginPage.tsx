@@ -91,7 +91,7 @@ function LoginPage(){
                 const successData = data as LoginSuccessResponse;
                 console.log('Login successful:', successData.message);
                 console.log('User ID:', successData.user_id);
-                navigate('/'); 
+                navigate('/dashboard'); 
             } else {
                 const errorData = data as LoginErrorResponse;
                 setError(errorData.error);
