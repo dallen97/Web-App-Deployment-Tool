@@ -152,7 +152,7 @@ def start_container(request):
             image_name, 
             detach=True,
             publish_all_ports=True, 
-            #labels={"wadt.user_id": user_id_str},
+            labels={"wadt.user_id": user_id_str},
             mem_limit=CONTAINER_MEM_LIMIT,
             cpu_period=CONTAINER_CPU_PERIOD,
             cpu_quota=CONTAINER_CPU_QUOTA

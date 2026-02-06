@@ -36,6 +36,9 @@ const Docker = ({ docker = [] }: DockerList) => {
     // State to store the dynamic URL (e.g., localhost:55001) once ready
     const [containerUrls, setContainerUrls] = useState<{ [key: string]: string }>({});
 
+    // State to store container ID's for stopping and restarting
+    const [containerIds, setContainerIds] = useState<{ [key: string]: string }>({});
+
     // 1. Start Container
     const handleStart = async (imageName: string, containerName: string) => {
         // Immediately show spinner
@@ -60,6 +63,8 @@ const Docker = ({ docker = [] }: DockerList) => {
                 console.log("Container started, waiting for port...", data.id);
                 // Begin polling the new endpoint to see when the port is open
                 pollForReadiness(data.id, containerName);
+                // Store the container ID on start 
+                setContainerIds(prev => ({ ...prev, [containerName]: data.id }));
             } else {
                 console.error('Start failed:', data);
                 // Reset to start button on failure
@@ -120,6 +125,71 @@ const Docker = ({ docker = [] }: DockerList) => {
         if (url) window.open(url, '_blank');
     };
 
+    // 4. Stop Container
+    const handleStop = async (containerName: string) => {
+        setContainerStatus(prev => ({ ...prev, [containerName]: 'loading' }));
+
+        const containerId = containerIds[containerName];
+ 
+        try {
+            const response = await fetch(`wadtapp/containers/${containerId}/stop/`, {
+                method: 'POST',
+                credentials: 'include',
+                headers :{
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('wadt_csrftoken') || ''
+                }
+            });
+            const data = await response.json();
+
+            if (response.ok){
+                console.log(containerName, 'container stopped.')
+                // Reset start button state
+                setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+                setContainerUrls(prev => {
+                    const newUrls = { ...prev };
+                    delete newUrls[containerName];
+                    return newUrls;
+                });
+            }
+            else {
+                console.error('Unable to stop container ', data)
+            }
+        } catch(error) {
+            console.error('Error stopping container :(', error)
+        }
+    };
+
+    // 5. Restart Container
+    const handleRestart = async(containerName: string) => {
+        const containerId = containerIds[containerName];
+        setContainerStatus(prev => ({ ...prev, [containerName]: 'loading' }));
+
+        try {
+                    const response = await fetch(`wadtapp/containers/${containerId}/restart/`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': getCookie('wadt_csrftoken') || ''
+            }
+        });
+            const data = await response.json()
+
+            if (response.ok){
+                console.log(containerName, 'has restarted')
+                pollForReadiness(containerId, containerName);
+            }
+            else{
+                console.error('Restart failed', data)
+                setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+            }
+        } catch (error){
+            console.error('Restart error', error);
+            setContainerStatus(prev => ({ ...prev, [containerName]: 'idle' }));
+        }
+    }
+    
     return (
         <>
             <div style={{ fontSize: '20px', marginTop: '100px' }}>
@@ -163,9 +233,21 @@ const Docker = ({ docker = [] }: DockerList) => {
                             </Button>
                         )}
 
-                        {/* Standard Stop/Restart Buttons */}
-                        <Button variant="danger" href={d.stoplink} style={{ marginLeft: '10px' }}>Stop</Button>
-                        <Button variant="warning" href={d.restartlink} style={{ marginLeft: '10px' }}>Restart</Button>
+                        {/* Stop Container*/}
+                        <Button 
+                            variant="danger" 
+                            onClick = {() => handleStop(d.name)}
+                            style={{ marginLeft: '10px' }}>
+                            Stop
+                        </Button>
+                        
+                        {/*Restart Contaienr*/}
+                        <Button 
+                            variant="warning" 
+                            onClick={() => handleRestart(d.name)} 
+                            style={{ marginLeft: '10px' }}>
+                            Restart
+                        </Button>
                     </div>
                 ))}
             </div>
