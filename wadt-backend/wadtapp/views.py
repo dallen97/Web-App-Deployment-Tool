@@ -96,6 +96,14 @@ def logout_user(request):
     logout(request)
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 
+
+@login_required
+def current_user(request):
+    return JsonResponse({
+        "username": request.user.username,
+    }) 
+
+
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):

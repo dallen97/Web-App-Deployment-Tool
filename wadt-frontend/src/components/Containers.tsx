@@ -1,7 +1,6 @@
 import { useState } from "react";
+import Button from "react-bootstrap/Button";
 import Spinner from "react-bootstrap/Spinner";
-import { Container, Row, Col, Button } from "react-bootstrap"
-
 
 export interface DockerProps {
   name: string;
@@ -203,69 +202,60 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   return (
     <>
-      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)"}}>
+      <div style={{ fontSize: "20px" }}>
         {docker.map((d, i) => (
-          <div key={i} style={{ marginTop: "35px" }} >
-            <Container className="mb-3">
-              <Row className="align-items-center">
-                <Col>
-                  {d.name} container
-                </Col>
-                
-                <Col className="text-end">
-                  {/* 1. IDLE STATE: Show Start Button */}
-                  {(!containerStatus[d.name] ||
-                    containerStatus[d.name] === "idle") && (
-                    <Button
-                      variant="primary"
-                      onClick={() => handleStart(d.imageName, d.name)}
-                      style={{ marginLeft: "10px" }}
-                    >
-                      Start
-                    </Button>
-                  )}
-                  {/* 2. LOADING STATE: Show Spinner */}
-                  {containerStatus[d.name] === "loading" && (
-                    <Button variant="primary" disabled style={{ marginLeft: "10px" }}>
-                      <Spinner
-                        as="span"
-                        animation="border"
-                        size="sm"
-                        role="status"
-                        aria-hidden="true"
-                      />
-                      <span className="visually-hidden">Loading...</span>
-                    </Button>
-                  )}
-                  {/* 3. READY STATE: Show Open App Button */}
-                  {containerStatus[d.name] === "ready" && (
-                    <Button
-                      variant="success"
-                      onClick={() => handleView(d.name)}
-                      style={{ marginLeft: "10px" }}
-                    >
-                      Open App
-                    </Button>
-                  )}
-                  {/* Stop Container*/}
-                  <Button
-                    variant="danger"
-                    onClick={() => handleStop(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Stop
-                  </Button>
-                  {/*Restart Contaienr*/}
-                  <Button
-                    variant="warning"
-                    onClick={() => handleRestart(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Restart
-                  </Button>
-                  </Col>
-                </Row>
-            </Container>
+          <div key={i} style={{ marginTop: "35px" }}>
+            {d.name} container
+            {/* 1. IDLE STATE: Show Start Button */}
+            {(!containerStatus[d.name] ||
+              containerStatus[d.name] === "idle") && (
+              <Button
+                variant="primary"
+                onClick={() => handleStart(d.imageName, d.name)}
+                style={{ marginLeft: "10px" }}
+              >
+                Start
+              </Button>
+            )}
+            {/* 2. LOADING STATE: Show Spinner */}
+            {containerStatus[d.name] === "loading" && (
+              <Button variant="primary" disabled style={{ marginLeft: "10px" }}>
+                <Spinner
+                  as="span"
+                  animation="border"
+                  size="sm"
+                  role="status"
+                  aria-hidden="true"
+                />
+                <span className="visually-hidden">Loading...</span>
+              </Button>
+            )}
+            {/* 3. READY STATE: Show Open App Button */}
+            {containerStatus[d.name] === "ready" && (
+              <Button
+                variant="success"
+                onClick={() => handleView(d.name)}
+                style={{ marginLeft: "10px" }}
+              >
+                Open App
+              </Button>
+            )}
+            {/* Stop Container*/}
+            <Button
+              variant="danger"
+              onClick={() => handleStop(d.name)}
+              style={{ marginLeft: "10px" }}
+            >
+              Stop
+            </Button>
+            {/*Restart Contaienr*/}
+            <Button
+              variant="warning"
+              onClick={() => handleRestart(d.name)}
+              style={{ marginLeft: "10px" }}
+            >
+              Restart
+            </Button>
           </div>
         ))}
         <br />
@@ -274,6 +264,5 @@ const Docker = ({ docker = [] }: DockerList) => {
     </>
   );
 };
-
 
 export default Docker;
