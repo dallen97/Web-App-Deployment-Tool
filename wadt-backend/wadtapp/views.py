@@ -1,5 +1,8 @@
 import json
 import docker
+import socket
+import urllib.request
+from urllib.error import URLError, HTTPError
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError
 from django.shortcuts import get_object_or_404, render
 from django.http import JsonResponse
@@ -8,6 +11,8 @@ from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.http import JsonResponse
 
 from .models import Container
 
@@ -17,11 +22,14 @@ CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
 
 #initialize docker client
-try:
-    client = docker.from_env()
-except DockerException:
-    print("Error: Could not connect to Docker")
-    client = None
+def get_docker_client():
+    try:
+        # Check if docker is responsive
+        client = docker.from_env()
+        client.ping() 
+        return client
+    except (DockerException, APIError):
+        return None
 
 def index(request):
     container_catalog = Container.objects.order_by("-name")
@@ -91,6 +99,8 @@ def logout_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
+    client = get_docker_client()
+
     #now returns containers only relevant to the current user, will implement one for all containers later
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
@@ -112,11 +122,18 @@ def get_containers(request):
          return JsonResponse({"error": "Failed to fetch containers"}, status=500)
 
 @require_http_methods(["POST"])
-@login_required
 def start_container(request):
+    # check if user is logged in
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+    
+    client = get_docker_client()
+
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
+        user_id_str = str(request.user.id)
+        
         body = json.loads(request.body)
         image_name = body.get('imageName')
         user_id = str(request.user.id)
@@ -124,24 +141,68 @@ def start_container(request):
         if not image_name:
             return JsonResponse({"error": "imageName is required"}, status=400)
         
-        existing_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
-        if len(existing_containers) >= MAX_CONTAINERS:
-             return JsonResponse({"error": f"Quota exceeded. Max {MAX_CONTAINERS} containers allowed."}, status=429)
-
+        # at the container we are starting to our running list
+        running_containers = client.containers.list(
+            filters={
+                "label": f"wadt.user_id={user_id_str}",
+                "status": "running" 
+            }
+        )
+        
+        # check if we hit max already
+        if len(running_containers) >= MAX_CONTAINERS:
+             debug_list = [{ "id": c.short_id, "name": c.name, "status": c.status } for c in running_containers]
+             
+             return JsonResponse({
+                 "error": f"Quota exceeded. You are running {len(running_containers)}/{MAX_CONTAINERS} apps.",
+                 "debug_containers": debug_list
+             }, status=429)
+        
         client.images.pull(image_name)
         new_container = client.containers.run(
             image_name, 
-            detach=True, 
+            detach=True,
+            publish_all_ports=True, 
             labels={"wadt.user_id": user_id_str},
             mem_limit=CONTAINER_MEM_LIMIT,
             cpu_period=CONTAINER_CPU_PERIOD,
             cpu_quota=CONTAINER_CPU_QUOTA
         )
+
+        new_container.reload()
+
+        # 4. Define the 'ports' variable here
+        ports_dict = new_container.attrs['NetworkSettings']['Ports']
+        external_url = "No exposed ports"
+
+
+        target_port = None
+
+        # Identify which internal port we WANT based on the image
+        # this fix is for when multiple ports are exposed, we pick the right one
+        if 'dvwa' in image_name.lower():
+            target_port = '80/tcp'       # DVWA lives here
+    
+            
+        # Try to find that specific port first
+        if target_port and target_port in ports_dict and ports_dict[target_port]:
+            host_port = ports_dict[target_port][0]['HostPort']
+            external_url = f"http://localhost:{host_port}"
+        
+        # Find the first valid port mapping
+        if ports_dict:
+            for internal_port, bindings in ports_dict.items():
+                if bindings:
+                    # bindings is a list like [{'HostIp': '0.0.0.0', 'HostPort': '55001'}]
+                    host_port = bindings[0]['HostPort']
+                    external_url = f"http://localhost:{host_port}"
+                    break # Stop after finding the first one
         
         return JsonResponse({
             "status": "success",
             "message": f"Container {new_container.name} started for user {user_id}",
-            "id": new_container.short_id
+            "id": new_container.short_id,
+            "external_url": external_url
         }, status=201)
     except APIError as e:
         return JsonResponse({"error": "Docker API Error: " + str(e)}, status=500)
@@ -150,6 +211,8 @@ def start_container(request):
 
 def _get_user_container(user, container_id):
     """Helper to safely retrieve a container owned by the user"""
+    client = get_docker_client()
+    
     try:
         container = client.containers.get(container_id)
         # Verify ownership
@@ -189,6 +252,8 @@ def restart_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
+    client = get_docker_client()
+
     #used if docker container breaks
     container, error_response = _get_user_container(request.user, container_id)
     if error_response: 
@@ -221,3 +286,97 @@ def reset_container(request, container_id):
         }, status=201)
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
+    
+@require_http_methods(["POST", "GET"]) 
+def check_container_ready(request, container_id):     
+    if not request.user.is_authenticated:
+        print("\n!!! 401 DETECTED !!!")
+        print(f"Container ID: {container_id}")
+        
+        # 1. Did we get ANY cookies?
+        raw_cookie = request.META.get('HTTP_COOKIE', 'No Cookie Header Found')
+        print(f"1. Raw Cookie Header: {raw_cookie}")
+        
+        # 2. Did Django parse a sessionid?
+        session_key = request.COOKIES.get('sessionid')
+        print(f"2. Parsed Session ID: {session_key}")
+        
+        # 3. Check if this session actually exists in the DB
+        if session_key:
+            from django.contrib.sessions.models import Session
+            try:
+                s = Session.objects.get(session_key=session_key)
+                print(f"3. DB Check: Session FOUND. Expire date: {s.expire_date}")
+                print(f"4. Session Data: {s.get_decoded()}")
+            except Session.DoesNotExist:
+                print("3. DB Check: Session NOT FOUND in database (It may have expired or been deleted)")
+        else:
+            print("3. DB Check: Skipped (No session key provided)")
+            
+        print("!!! END DEBUG !!!\n")
+        
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    try:        
+        client = get_docker_client()
+        if not client:
+            return JsonResponse({"error": "Docker service unavailable"}, status=503)
+
+        # use the ID from the URL
+        try:
+            container = client.containers.get(container_id)
+        except Exception:
+            return JsonResponse({"ready": False, "error": "Container not found"}, status=404)
+        
+        # 1. check status
+        if container.status != 'running':
+            return JsonResponse({"ready": False, "status": container.status})
+
+        # 2. check socket 
+        ports_dict = container.attrs['NetworkSettings']['Ports']
+        host_port = None
+        
+        if ports_dict:
+            for internal_port, bindings in ports_dict.items():
+                if bindings:
+                    host_port = bindings[0]['HostPort']
+                    break
+        
+        if not host_port:
+             return JsonResponse({"ready": False, "reason": "No ports exposed"})
+
+        # --- THE NEW HTTP CHECK ---
+        target_url = f"http://localhost:{host_port}"
+        
+        try:
+            # try to actually open the URL. 
+            # timeout=1 ensures we don't hang if the app is slow.
+            with urllib.request.urlopen(target_url, timeout=1) as response:
+                # If we get here, we got a 200 OK (or similar success)
+                return JsonResponse({"ready": True, "url": target_url})
+                
+        except HTTPError as e:
+            # IMPORTANT: A 401 (Unauthorized) or 403 (Forbidden) means the APP IS RUNNING!
+            # It just means we need to log in. So this counts as "Ready".
+            # Only 500 errors might suggest we should wait longer, but usually 
+            # any HTTP response means the server is up.
+            return JsonResponse({"ready": True, "url": target_url})
+            
+        except URLError as e:
+            # This catches "Connection Refused" or "Server Not Found"
+            # This means the app is NOT ready yet.
+            return JsonResponse({"ready": False, "reason": "App starting..."})
+        except Exception as e:
+            # Any other crash means not ready
+            return JsonResponse({"ready": False, "reason": str(e)})
+
+    except Exception as e:
+        return JsonResponse({"ready": False, "error": str(e)})
+    
+@ensure_csrf_cookie
+def get_csrf_token(request):
+    """
+    This view does nothing but ensure the CSRF cookie is sent 
+    to the browser.
+    """
+    return JsonResponse({'message': 'CSRF cookie set'})

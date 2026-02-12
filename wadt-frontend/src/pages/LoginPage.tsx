@@ -1,8 +1,22 @@
 import { Container } from 'react-bootstrap';
-import {useState } from "react";
+import {useState, useEffect } from "react";
 import { Link, useNavigate } from 'react-router-dom'; // Need this for Header links
 import {Form, Button, Alert} from "react-bootstrap"
 
+function getCookie(name: string) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== '') {
+        const cookies = document.cookie.split(';');
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i].trim();
+            if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+        }
+    }
+    return cookieValue;
+}
 
 // Interfaces for type safety
 interface LoginPayload 
@@ -31,52 +45,63 @@ function LoginPage(){
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const navigate = useNavigate();
+    
+    // get csrf cookie
+    useEffect(() => {
+        // fetch this endpoint just to force Django to send the 'Set-Cookie' header
+        fetch('/wadtapp/auth/csrf/', { 
+            method: 'GET', 
+            credentials: 'include' 
+        }).catch(err => console.log("CSRF Ping failed (server might be down):", err));
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError('');
+        e.preventDefault();
+        setError('');
 
-    // Missing field
-    if (!username || !password) {
-        setError('Username and password are required');
-        return;
-    }
-
-    setIsLoading(true);
-
-    try {
-        // Create payload
-        const payload: LoginPayload =
-        {
-            username,
-            password
-        };
-
-        const response = await fetch('/wadtapp/auth/login/', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(payload)
-        });
-
-        const data = await response.json() as LoginResponse;
-
-        if (response.ok) {
-            const successData = data as LoginSuccessResponse;
-            console.log('Login successful:', successData.message);
-            console.log('User ID:', successData.user_id);
-            navigate('/'); 
-        } else {
-            const errorData = data as LoginErrorResponse;
-            setError(errorData.error);
+        // Missing field
+        if (!username || !password) {
+            setError('Username and password are required');
+            return;
         }
-    } catch (err) {
-        console.error('Login error:', err);
-        setError('Unable to login.');
-    } finally {
-        setIsLoading(false);
-    }
+
+        setIsLoading(true);
+
+        try {
+            // Create payload
+            const payload: LoginPayload =
+            {
+                username,
+                password
+            };
+
+            const response = await fetch('/wadtapp/auth/login/', {
+                method: 'POST',
+                credentials: 'include',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('wadt_csrftoken') || '',
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json() as LoginResponse;
+
+            if (response.ok) {
+                const successData = data as LoginSuccessResponse;
+                console.log('Login successful:', successData.message);
+                console.log('User ID:', successData.user_id);
+                navigate('/dashboard'); 
+            } else {
+                const errorData = data as LoginErrorResponse;
+                setError(errorData.error);
+            }
+        } catch (err) {
+            console.error('Login error:', err);
+            setError('Unable to login.');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     return(

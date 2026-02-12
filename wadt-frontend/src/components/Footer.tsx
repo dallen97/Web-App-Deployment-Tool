@@ -5,11 +5,11 @@ function Footer() {
   return (
     <Navbar className="navbar navbar-expand-lg bg-dark" data-bs-theme="dark">
       <Container>
-        <Navbar.Brand href="#home">Navbar with text</Navbar.Brand>
+        <Navbar.Brand href="#home">Web App Deployment Tool</Navbar.Brand>
         <Navbar.Toggle />
         <Navbar.Collapse className="justify-content-end">
           <Navbar.Text>
-            Frontend Was Here 0_o: <a href="#login">Link Works</a>
+            Contact Information: <a href="#login">contactlink</a>
           </Navbar.Text>
         </Navbar.Collapse>
       </Container>

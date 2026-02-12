@@ -19,12 +19,10 @@ function LandingPage() {
   return (
     <div className="">
       <HeaderComponent
-      buttons={[
-        {text: "Home", link: "/"},
-        {text: "Dashboard", link: "/dashboard"},
-        {text: "Sign in", link: "/login"},
-      ]}
-       />
+        wadtEnabled={false}
+        align="right"
+        buttons={[{ text: "Sign in", link: "/login" }]}
+      />
       <br />
       <br />
       <div style={{ marginTop: "25px" }}>
