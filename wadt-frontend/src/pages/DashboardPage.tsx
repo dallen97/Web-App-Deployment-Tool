@@ -1,14 +1,10 @@
 import { useState, useEffect } from "react";
 import Docker from "../components/Docker";
-import Header from "../components/Header";
 import Footer from "../components/Footer";
-import { Container, Row, Col } from "react-bootstrap"
-
-const HeaderComponent = Header as unknown as React.ComponentType<any>;
+import { Container, Row, Col, Button } from "react-bootstrap"
 
 
-
-function DashboardPage() {
+function DashboardContent() {
 
   const [username, setUsername] = useState<string>("");
 
@@ -25,8 +21,12 @@ function DashboardPage() {
   }, []);
 
   return (
-    <div className="d-flex flex-column min-vh-100">
-      <HeaderComponent buttons={[{ text: "Account", link: "/account" }]} />
+
+    <Col
+      xs={10}
+      style={{ transition: "all 0.3s ease" }}
+    >
+     <div className="d-flex flex-column min-vh-100">    
       <main className="flex-grow-1">
         <Container
           className="mx-auto"
@@ -73,21 +73,21 @@ function DashboardPage() {
                 restartlink: "/",
               },
               {
-                name: "Damn Vulnerable Web App",
+                name: "Bonus Docker",
                 imageName: "vulnerables/web-dvwa",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
-                name: "Damn Vulnerable Web App",
+                name: "Bonus Docker",
                 imageName: "vulnerables/web-dvwa",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
-                name: "Damn Vulnerable Web App",
+                name: "Bonus Docker",
                 imageName: "vulnerables/web-dvwa",
                 startlink: "/",
                 stoplink: "/",
@@ -111,12 +111,13 @@ function DashboardPage() {
             </Col>
             
           </Row>
-          
         </Container>
       </main>
       <Footer />
+      
     </div>
+     </Col>
   );
 }
 
-export default DashboardPage;
+export default DashboardContent;
