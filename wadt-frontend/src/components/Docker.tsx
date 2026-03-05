@@ -60,6 +60,7 @@ const Docker = ({ docker = [] }: DockerList) => {
         },
         body: JSON.stringify({
           imageName: imageName,
+          name: containerName,
         }),
       });
 

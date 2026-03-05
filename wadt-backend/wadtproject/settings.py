@@ -10,9 +10,15 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import os
+
 from pathlib import Path
 
 from decouple import config
+
+#before deploying make sure to run python manage.py collectstatic
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -25,7 +31,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config("Debug", default=False, cast=bool)
 
 ALLOWED_HOSTS = []
 
@@ -74,8 +80,8 @@ TEMPLATES = [
 WSGI_APPLICATION = "wadtproject.wsgi.application"
 
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+#Database
+#https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
     "default": {
@@ -87,6 +93,7 @@ DATABASES = {
         "PORT": config("DB_PORT"),
     }
 }
+
 
 
 # Password validation
