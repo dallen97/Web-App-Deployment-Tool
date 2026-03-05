@@ -1,8 +1,8 @@
-import docker
+import docker # type: ignore
 from wadtapp.models import Container
-from django.core.management.base import BaseCommand
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
+from django.core.management.base import BaseCommand # type: ignore
+from django.utils import timezone # type: ignore
+from django.utils.dateparse import parse_datetime # type: ignore
 from datetime import timedelta
 
 class Command(BaseCommand):
@@ -15,7 +15,7 @@ class Command(BaseCommand):
             sandbox_containers = client.containers.list(all=True, filters={"label": "wadt.user_id"})
             
             now = timezone.now()
-            max_runtime = timedelta(seconds=10)
+            max_runtime = timedelta(hours=24)
             cleaned_count = 0
 
             self.stdout.write(f"Found {len(sandbox_containers)} sandbox containers. Checking time alive.")

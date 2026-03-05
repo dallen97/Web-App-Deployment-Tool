@@ -1,14 +1,14 @@
 import json
-import docker
-from docker.errors import DockerException, NotFound, ImageNotFound, APIError
-from django.middleware.csrf import get_token
-from django.shortcuts import get_object_or_404, render
-from django.http import JsonResponse
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate, login, logout
-from django.views.decorators.http import require_http_methods
-from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import ensure_csrf_cookie
+import docker # type: ignore
+from docker.errors import DockerException, NotFound, ImageNotFound, APIError # type: ignore
+from django.middleware.csrf import get_token # type: ignore
+from django.shortcuts import get_object_or_404, render # pyright: ignore[reportMissingModuleSource]
+from django.http import JsonResponse # type: ignore
+from django.contrib.auth.models import User # type: ignore
+from django.contrib.auth import authenticate, login, logout # type: ignore
+from django.views.decorators.http import require_http_methods # type: ignore
+from django.contrib.auth.decorators import login_required # type: ignore
+from django.views.decorators.csrf import ensure_csrf_cookie # type: ignore
 
 from .models import Container
 
