@@ -42,7 +42,7 @@ const Header = ({
     <div data-bs-theme="dark">
       <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
         <ul
-          className={`nav w-100 d-flex align-items-center container-fluid ${alignClass}`}
+          className={"nav w-100 d-flex align-items-center container-fluid ${alignClass}"}
         >
           {wadtEnabled && (
             <>
