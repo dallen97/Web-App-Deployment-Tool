@@ -1,6 +1,6 @@
-from django.apps import AppConfig # pyright: ignore[reportMissingModuleSource]
-import docker # type: ignore
-from docker.errors import APIError # pyright: ignore[reportMissingModuleSource]
+from django.apps import AppConfig
+import docker
+from docker.errors import APIError
 
 def setup_secure_network():
     #creates isolated network

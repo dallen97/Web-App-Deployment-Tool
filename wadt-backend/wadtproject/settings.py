@@ -14,10 +14,10 @@ import os
 
 from pathlib import Path
 
-from decouple import config # type: ignore
+from decouple import config 
 
 #before deploying make sure to run python manage.py collectstatic
-STATIC_ROOT = BASE_DIR / "staticfiles" # type: ignore
+STATIC_ROOT = BASE_DIR / "staticfiles" 
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.

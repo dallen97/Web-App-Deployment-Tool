@@ -1,5 +1,5 @@
-from django.db import models # type: ignore
-from django.conf import settings # type: ignore
+from django.db import models
+from django.conf import settings
 
 
 class Container(models.Model):

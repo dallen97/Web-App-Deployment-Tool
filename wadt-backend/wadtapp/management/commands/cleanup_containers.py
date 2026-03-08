@@ -1,8 +1,8 @@
-import docker # type: ignore
+import docker 
 from wadtapp.models import Container
-from django.core.management.base import BaseCommand # type: ignore
-from django.utils import timezone # type: ignore
-from django.utils.dateparse import parse_datetime # type: ignore
+from django.core.management.base import BaseCommand 
+from django.utils import timezone 
+from django.utils.dateparse import parse_datetime 
 from datetime import timedelta
 
 class Command(BaseCommand):
