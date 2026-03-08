@@ -17,7 +17,7 @@ const Cards: React.FC<CardsProps> = ({ title, subtitle, text, cardWidth }) => {
       {["Light"].map((variant) => (
         <Card
           border="light"
-          style={{ width: cardWidth, margin: "0 auto" }}
+          style={{ width: cardWidth, margin: "0 auto", minHeight: "500px" }}
           bg={
             variant.toLowerCase() as
               | "light"
@@ -35,12 +35,20 @@ const Cards: React.FC<CardsProps> = ({ title, subtitle, text, cardWidth }) => {
           text={variant.toLowerCase() === "light" ? "dark" : "white"}
           className="mb-2"
         >
-          <Card.Body>
-            <Card.Title>{title}</Card.Title>
+          <Card.Body style={{border: "1px solid rgb(255, 255, 255)", borderRadius: "15px"}}>
+            <Card.Title style={{textAlign: "center"}}>
+              <h4>
+                {title}  
+              </h4>
+            </Card.Title>
             <Card.Subtitle className="mb-2 text-muted">
               {subtitle}
             </Card.Subtitle>
-            <Card.Text>{text}</Card.Text>
+            <Card.Text style={{fontSize: "1.25rem", textAlign: "center", marginTop: "20px", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: "150px" }}>
+              <strong>
+                {text}
+              </strong>
+            </Card.Text>
           </Card.Body>
         </Card>
       ))}

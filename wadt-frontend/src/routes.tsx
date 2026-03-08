@@ -2,8 +2,9 @@ import { createBrowserRouter } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import Dashboard from "./pages/DashboardPage";
+import Dashboard from "./components/DashboardLayout";
 import Account from "./pages/AccountPage";
+import DashboardLayout from "./components/DashboardLayout";
 
 //Create routes for the website
 
@@ -28,7 +29,7 @@ const router = createBrowserRouter([
   // Dashboard Page
   {
     path: "/dashboard",
-    element: <Dashboard />,
+    element: <DashboardLayout />,
   },
 
   // Account Page
