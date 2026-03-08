@@ -16,12 +16,11 @@ from pathlib import Path
 
 from decouple import config
 
-#before deploying make sure to run python manage.py collectstatic
-STATIC_ROOT = BASE_DIR / "staticfiles"
-
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+#before deploying make sure to run python manage.py collectstatic
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 # Quick-start development settings - unsuitable for production
@@ -33,7 +32,7 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("Debug", default=False, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1']
 
 
 # Application definition

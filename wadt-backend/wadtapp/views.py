@@ -9,6 +9,9 @@ from django.contrib.auth import authenticate, login, logout
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from datetime import timedelta
 
 from .models import Container
 
@@ -147,16 +150,40 @@ def get_containers(request):
     user_id_str = str(request.user.id)
 
     try:
-        user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}"})
+        user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}", "status": "running"})
         container_data = []
+        max_runtime = timedelta(hours=24)
         for c in user_containers:
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
+            db_container = Container.objects.filter(docker_container_id=c.short_id, user=request.user).first()
+            custom_name = db_container.name if db_container else c.name
+            uptime_str = None
+            time_left_str = None
+            if c.status == 'running':
+                started_at_str = c.attrs['State']['StartedAt']
+                started_at = parse_datetime(started_at_str)
+                if started_at:
+                    uptime = timezone.now() - started_at
+                    days = uptime.days
+                    hours, remainder = divmod(uptime.seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+                    time_left = max_runtime - uptime
+                    if time_left > timedelta(0):
+                        days = time_left.days
+                        hours, remainder = divmod(time_left.seconds, 3600)
+                        minutes, seconds = divmod(remainder, 60)
+                        time_left_str = f"{days}d {hours}h {minutes}m {seconds}s"
+                    else:
+                        time_left_str = "Expired"
             container_data.append({
                 "id": c.short_id,
-                "name": c.name,
+                "name": custom_name,
                 "image": image_tag,
                 "status": c.status,
-                "external_url": get_container_url(request, c)
+                "external_url": get_container_url(request, c),
+                "uptime": uptime_str,
+                "time_left": time_left_str
             })
         return JsonResponse(container_data, safe=False)
     except APIError:

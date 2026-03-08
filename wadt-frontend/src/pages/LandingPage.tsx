@@ -6,13 +6,10 @@ import Footer from "../components/Footer.tsx";
 const HeaderComponent = Header as unknown as React.ComponentType<any>;
 
 /**
- * Structure of the Landing Page
- * - Header
- * - Title
- * - Description
- * - Call to Action
- *
- * For scrolling down the page, add transitions between sections
+  * Things to add: 
+  * Footer
+  * Themes component
+  * 
  */
 
 function LandingPage() {
@@ -42,50 +39,31 @@ function LandingPage() {
       </div>
       <div>
         <div style={{ marginTop: "600px" }}>
-          <h1 className="display-6 font-monospace text-center">
+          <h1 className="display-6 font-monospace text-center" style={{ marginBottom: "150px" }}>
             Develop Your Skills Here!
           </h1>
           <div
             style={{
-              marginTop: "200px",
               margin: "0 auto",
+              marginBottom: "100px",
               display: "flex",
+              justifyContent: "center",
               gap: "1rem",
             }}
           >
             <Card
-              cardWidth="18rem"
+              cardWidth="30rem"
               title="Work With Docker"
-              text="
-        Lorem ipsum dolor sit amet. 
-        Quo fuga explicabo ut voluptates laudantium et repellat voluptates quo consequatur 
-        ipsa et enim veritatis et dicta accusamus non omnis cupiditate.
-        "
+              text="Spin up isolated environments in seconds. Learn to build, ship, and run containers like a pro."
             ></Card>
             <Card
-              cardWidth="18rem"
-              title="Deploy Web Applications"
-              text="
-        Lorem ipsum dolor sit amet. 
-        Quo fuga explicabo ut voluptates laudantium et repellat voluptates quo consequatur 
-        ipsa et enim veritatis et dicta accusamus non omnis cupiditate.
-        "
-            ></Card>
-            <Card
-              cardWidth="20rem"
+              cardWidth="30rem"
               title="Hone Your Cyber Security Skills"
-              text="
-        Lorem ipsum dolor sit amet. 
-        Quo fuga explicabo ut voluptates laudantium et repellat voluptates quo consequatur 
-        ipsa et enim veritatis et dicta accusamus non omnis cupiditate.
-        "
+              text="Put your hacking skills to the test against intentionally vulnerable applications. Learn to think like an attacker — ethically and legally."
             ></Card>
           </div>
         </div>
       </div>
-
-      <div style={{ marginTop: "500px" }}></div>
-      <Footer />
     </div>
   );
 }

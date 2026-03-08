@@ -210,7 +210,7 @@ const Docker = ({ docker = [] }: DockerList) => {
             <Container className="mb-3">
               <Row className="align-items-center">
                 <Col>
-                  {d.name} container
+                  <strong>{d.name} container</strong>
                 </Col>
                 
                 <Col className="text-end">

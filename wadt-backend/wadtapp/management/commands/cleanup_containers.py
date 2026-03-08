@@ -15,7 +15,7 @@ class Command(BaseCommand):
             sandbox_containers = client.containers.list(all=True, filters={"label": "wadt.user_id"})
             
             now = timezone.now()
-            max_runtime = timedelta(seconds=10)
+            max_runtime = timedelta(hours=24)
             cleaned_count = 0
 
             self.stdout.write(f"Found {len(sandbox_containers)} sandbox containers. Checking time alive.")

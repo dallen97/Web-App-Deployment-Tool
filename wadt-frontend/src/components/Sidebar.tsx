@@ -1,8 +1,5 @@
 import {Col, Button, Accordion} from 'react-bootstrap';
 
-
-
-
 function Sidebar() {
  return (
     <Col

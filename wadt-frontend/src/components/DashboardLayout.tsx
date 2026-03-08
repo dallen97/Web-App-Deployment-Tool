@@ -1,13 +1,13 @@
 import { Container, Row } from "react-bootstrap";
-import Sidebar from "./Sidebar";
 import DashboardContent from "../pages/DashboardPage";
+
+// Plan to Add sidebar at a later stage
 
 const DashboardLayout = () => {
 
   return (
     <Container fluid style={{ padding: 0 }}>
       <Row className="g-0">
-        <Sidebar/>
         <DashboardContent />
       </Row>
     </Container>

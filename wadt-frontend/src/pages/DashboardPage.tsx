@@ -3,11 +3,18 @@ import Docker from "../components/Docker";
 import Footer from "../components/Footer";
 import { Container, Row, Col, Button } from "react-bootstrap"
 
+/*
+  Things to add:
+  - Footer
+  - Sidebar
+*/
 
 function DashboardContent() {
 
   const [username, setUsername] = useState<string>("");
+  const [containers, setContainers] = useState<any[]>([]);
 
+  //Fetch username
   useEffect(() => {
     fetch("wadtapp/api/me/", {
       credentials: "include"
@@ -20,12 +27,25 @@ function DashboardContent() {
       .catch(() => setUsername("Guest"));
   }, []);
 
-  return (
+  //Fetch containers
+  useEffect(() => {
+    const fetchContainers = () => {
+      fetch("wadtapp/containers/", {
+        credentials: "include"
+      })
+      .then(res => res.json())
+      .then(data => setContainers(data))
+      .catch(err => console.error("Failed to fetch containers:", err));
+    };
 
-    <Col
-      xs={10}
-      style={{ transition: "all 0.3s ease" }}
-    >
+    fetchContainers();
+
+    const interval = setInterval(fetchContainers, 10000); // poll every 10 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
      <div className="d-flex flex-column min-vh-100">    
       <main className="flex-grow-1">
         <Container
@@ -33,9 +53,10 @@ function DashboardContent() {
           style={{ marginTop: "50px" , textAlign: "center"}}
         >
           <h1>Welcome {username}</h1>
+          <p>Not you? <a href="/login/">Logout</a></p>
         </Container>
 
-        <Container style={{ marginTop: "100px"}}>
+        <Container style={{ marginTop: "50px"}}>
           <Row>
             <Col
             className="border rounded-4 ms-0 p-3 bg-light "
@@ -72,27 +93,6 @@ function DashboardContent() {
                 stoplink: "/",
                 restartlink: "/",
               },
-              {
-                name: "Bonus Docker",
-                imageName: "vulnerables/web-dvwa",
-                startlink: "/",
-                stoplink: "/",
-                restartlink: "/",
-              },
-              {
-                name: "Bonus Docker",
-                imageName: "vulnerables/web-dvwa",
-                startlink: "/",
-                stoplink: "/",
-                restartlink: "/",
-              },
-              {
-                name: "Bonus Docker",
-                imageName: "vulnerables/web-dvwa",
-                startlink: "/",
-                stoplink: "/",
-                restartlink: "/",
-              },
             ]}
           />
             </Col>
@@ -106,17 +106,25 @@ function DashboardContent() {
           style={{ marginLeft: "10px"}}
           >
                 <h3>Container Status</h3>
-
-                <p>Still In Development</p>
+                {containers.length > 0 ? (
+                  <ul className="list-unstyled">
+                    {containers.map((container, index) => (
+                      <li key={index} className="mb-3">
+                        <strong>{container.name}</strong><br/>
+                        Uptime: {container.uptime}<br/>
+                        Time left: {container.time_left}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>No running containers.</p>
+                )}
             </Col>
             
           </Row>
         </Container>
-      </main>
-      <Footer />
-      
+      </main>      
     </div>
-     </Col>
   );
 }
 
