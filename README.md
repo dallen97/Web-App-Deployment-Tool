@@ -101,4 +101,7 @@ Try these out:
 - http://127.0.0.1:8000/wadtapp
 - http://127.0.0.1:8000/admin
 
+Create the network for Docker containers to run in
+
+`$ docker network create wadt_sandbox_network`
 
