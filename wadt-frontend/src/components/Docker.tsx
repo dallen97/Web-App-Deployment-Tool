@@ -111,6 +111,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
       if (response.ok && data.id) {
         console.log("Container started, waiting for port...", data.id);
+        window.dispatchEvent(new Event("wadt:containers-changed"));
         // Begin polling the new endpoint to see when the port is open
         pollForReadiness(data.id, containerName);
         // Store the container ID on start
@@ -197,6 +198,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
       if (response.ok) {
         console.log(containerName, "container stopped.");
+        window.dispatchEvent(new Event("wadt:containers-changed"));
         // Reset start button state
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
         setContainerUrls((prev) => {
@@ -233,6 +235,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
       if (response.ok) {
         console.log(containerName, "has restarted");
+        window.dispatchEvent(new Event("wadt:containers-changed"));
         pollForReadiness(containerId, containerName);
       } else {
         console.error("Restart failed", data);
