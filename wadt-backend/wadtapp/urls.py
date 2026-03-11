@@ -4,8 +4,8 @@ from . import views
 urlpatterns = [
     path("", views.index, name="index"),
     path("<int:container_id>/", views.workbench, name="workbench"),
+    path('auth/csrf/', views.get_csrf_token, name='get_csrf_token'),
     path('auth/register/', views.register_user, name='register_user'),
-    path('auth/register/', views.login_user, name='login_user'),
     path('auth/login/', views.login_user, name='login_user'),
     path('auth/logout/', views.logout_user, name='logout_user'),
     path('containers/', views.get_containers, name='get_containers'),
@@ -13,6 +13,5 @@ urlpatterns = [
     path('containers/<str:container_id>/stop/', views.stop_container, name='stop_container'),
     path('containers/<str:container_id>/restart/', views.restart_container, name='restart_container'),
     path('containers/<str:container_id>/check-ready/', views.check_container_ready, name='check_container_ready'),
-    #path('auth/csrf/', views.get_csrf_token, name='get_csrf_token'),
     path('api/me/', views.current_user, name="current_user"),
 ]

@@ -13,6 +13,16 @@ function DashboardContent() {
 
   const [username, setUsername] = useState<string>("");
   const [containers, setContainers] = useState<any[]>([]);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  const formatDuration = (totalSeconds: number) => {
+    const clamped = Math.max(0, Math.floor(totalSeconds));
+    const days = Math.floor(clamped / 86400);
+    const hours = Math.floor((clamped % 86400) / 3600);
+    const minutes = Math.floor((clamped % 3600) / 60);
+    const seconds = clamped % 60;
+    return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+  };
 
   //Fetch username
   useEffect(() => {
@@ -41,7 +51,18 @@ function DashboardContent() {
     fetchContainers();
 
     const interval = setInterval(fetchContainers, 10000); // poll every 10 seconds
+    const onContainersChanged = () => fetchContainers();
+    window.addEventListener("wadt:containers-changed", onContainersChanged);
 
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("wadt:containers-changed", onContainersChanged);
+    };
+  }, []);
+
+  // Live timer tick (UI-only)
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -111,8 +132,29 @@ function DashboardContent() {
                     {containers.map((container, index) => (
                       <li key={index} className="mb-3">
                         <strong>{container.name}</strong><br/>
-                        Uptime: {container.uptime}<br/>
-                        Time left: {container.time_left}
+                        {container.started_at ? (
+                          (() => {
+                            const startedMs = Date.parse(container.started_at);
+                            const uptimeSeconds = Number.isFinite(startedMs)
+                              ? Math.max(0, (nowMs - startedMs) / 1000)
+                              : null;
+                            const maxSeconds = typeof container.max_runtime_seconds === "number"
+                              ? container.max_runtime_seconds
+                              : 86400;
+                            const timeLeftSeconds = uptimeSeconds === null ? null : maxSeconds - uptimeSeconds;
+                            return (
+                              <>
+                                Uptime: {uptimeSeconds === null ? container.uptime : formatDuration(uptimeSeconds)}<br/>
+                                Time left: {timeLeftSeconds === null ? container.time_left : (timeLeftSeconds <= 0 ? "Expired" : formatDuration(timeLeftSeconds))}
+                              </>
+                            );
+                          })()
+                        ) : (
+                          <>
+                            Uptime: {container.uptime}<br/>
+                            Time left: {container.time_left}
+                          </>
+                        )}
                       </li>
                     ))}
                   </ul>

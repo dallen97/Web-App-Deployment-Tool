@@ -1,4 +1,7 @@
 import json
+import urllib.request
+import urllib.error
+import socket
 import docker 
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -14,6 +17,9 @@ from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 
 from .models import Container
+
+# Seconds to wait when checking if container HTTP service is up
+CONTAINER_READINESS_TIMEOUT = 2
 
 MAX_CONTAINERS = 4
 CONTAINER_MEM_LIMIT = "512m"
@@ -66,6 +72,22 @@ def get_container_url(request, container):
         pass
     return None
 
+
+def _container_http_reachable(url):
+    """
+    Try to GET the container URL. Returns True if the server responds
+    (any HTTP status), False on connection refused / timeout / other errors.
+    Used so we only report "ready" when the app inside the container is up.
+    """
+    if not url:
+        return False
+    try:
+        req = urllib.request.Request(url, method="GET")
+        urllib.request.urlopen(req, timeout=CONTAINER_READINESS_TIMEOUT)
+        return True
+    except (urllib.error.URLError, socket.timeout, OSError):
+        return False
+
 def index(request):
     container_catalog = Container.objects.order_by("-name")
     context = {"container_catalog": container_catalog}
@@ -99,7 +121,7 @@ def register_user(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 @require_http_methods(["POST"])
-@ensure_csrf_cookie
+#@ensure_csrf_cookie
 def login_user(request):
     #logs in a user
     try:
@@ -153,16 +175,19 @@ def get_containers(request):
         user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}", "status": "running"})
         container_data = []
         max_runtime = timedelta(hours=24)
+        max_runtime_seconds = int(max_runtime.total_seconds())
         for c in user_containers:
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
             db_container = Container.objects.filter(docker_container_id=c.short_id, user=request.user).first()
             custom_name = db_container.name if db_container else c.name
             uptime_str = None
             time_left_str = None
+            started_at_iso = None
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
                 started_at = parse_datetime(started_at_str)
                 if started_at:
+                    started_at_iso = started_at.isoformat()
                     uptime = timezone.now() - started_at
                     days = uptime.days
                     hours, remainder = divmod(uptime.seconds, 3600)
@@ -182,6 +207,8 @@ def get_containers(request):
                 "image": image_tag,
                 "status": c.status,
                 "external_url": get_container_url(request, c),
+                "started_at": started_at_iso,
+                "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
                 "time_left": time_left_str
             })
@@ -360,9 +387,13 @@ def check_container_ready(request, container_id):
             return error_response
 
         container.reload()
-        is_ready = container.status == "running"
-
-        url = get_container_url(request, container) if is_ready else None
+        url = get_container_url(request, container) if container.status == "running" else None
+        # Only report ready when the container is running and the app responds to HTTP
+        is_ready = (
+            container.status == "running"
+            and url is not None
+            and _container_http_reachable(url)
+        )
 
         return JsonResponse({
             "ready": is_ready,
