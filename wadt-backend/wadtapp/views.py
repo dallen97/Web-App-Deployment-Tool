@@ -1,4 +1,7 @@
 import json
+import urllib.request
+import urllib.error
+import socket
 import docker 
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -14,6 +17,9 @@ from django.utils.dateparse import parse_datetime
 from datetime import timedelta
 
 from .models import Container
+
+# Seconds to wait when checking if container HTTP service is up
+CONTAINER_READINESS_TIMEOUT = 2
 
 MAX_CONTAINERS = 4
 CONTAINER_MEM_LIMIT = "512m"
@@ -66,6 +72,22 @@ def get_container_url(request, container):
         pass
     return None
 
+
+def _container_http_reachable(url):
+    """
+    Try to GET the container URL. Returns True if the server responds
+    (any HTTP status), False on connection refused / timeout / other errors.
+    Used so we only report "ready" when the app inside the container is up.
+    """
+    if not url:
+        return False
+    try:
+        req = urllib.request.Request(url, method="GET")
+        urllib.request.urlopen(req, timeout=CONTAINER_READINESS_TIMEOUT)
+        return True
+    except (urllib.error.URLError, socket.timeout, OSError):
+        return False
+
 def index(request):
     container_catalog = Container.objects.order_by("-name")
     context = {"container_catalog": container_catalog}
@@ -99,7 +121,7 @@ def register_user(request):
         return JsonResponse({'error': str(e)}, status=500)
 
 @require_http_methods(["POST"])
-@ensure_csrf_cookie
+#@ensure_csrf_cookie
 def login_user(request):
     #logs in a user
     try:
@@ -360,9 +382,13 @@ def check_container_ready(request, container_id):
             return error_response
 
         container.reload()
-        is_ready = container.status == "running"
-
-        url = get_container_url(request, container) if is_ready else None
+        url = get_container_url(request, container) if container.status == "running" else None
+        # Only report ready when the container is running and the app responds to HTTP
+        is_ready = (
+            container.status == "running"
+            and url is not None
+            and _container_http_reachable(url)
+        )
 
         return JsonResponse({
             "ready": is_ready,

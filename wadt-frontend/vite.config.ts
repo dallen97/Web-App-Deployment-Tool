@@ -7,11 +7,11 @@ export default defineConfig({
     proxy: {
       '/wadtapp' : {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        changeOrigin: false,  // keep Host: localhost:5173 so Django sets CSRF cookie for frontend origin
       },
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true,
+        changeOrigin: false,
       },
     }
   }

@@ -47,15 +47,20 @@ function RegisterPage(){
     const [successMessage, setSuccessMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false); //message while loading
     const [error, setError] = useState('');
+    const [csrfToken, setCsrfToken] = useState<string>('');
     const navigate = useNavigate();
 
-    // get csrf cookie
+    // get CSRF token from backend (and set cookie for same origin)
     useEffect(() => {
-        // fetch this endpoint just to force Django to send the 'Set-Cookie' header
-        fetch('/wadtapp/auth/csrf/', { 
-            method: 'GET', 
-            credentials: 'include' 
-        }).catch(err => console.log("CSRF Ping failed (server might be down):", err));
+        fetch('/wadtapp/auth/csrf/', { method: 'GET', credentials: 'include' })
+            .then(res => {
+                if (!res.ok) return null;
+                const contentType = res.headers.get('content-type');
+                if (contentType?.includes('application/json')) return res.json();
+                return null;
+            })
+            .then((data: { csrfToken?: string } | null) => data?.csrfToken && setCsrfToken(data.csrfToken))
+            .catch(() => {});
     }, []);
 
     const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -85,17 +90,21 @@ function RegisterPage(){
                 password
             };
     
+            const token = csrfToken || getCookie('wadt_csrftoken') || '';
             const response = await fetch('/wadtapp/auth/register/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-CSRFToken': getCookie('wadt_csrftoken') || '',
+                    'X-CSRFToken': token,
                 },
                 credentials: 'include',
                 body: JSON.stringify(payload)
             });
-            
-            const data = await response.json() as RegisterResponse;
+
+            const contentType = response.headers.get('content-type');
+            const data = contentType?.includes('application/json')
+                ? (await response.json() as RegisterResponse)
+                : { error: response.status === 403 ? 'Invalid or missing CSRF token.' : 'Request failed.' };
 
             // Direct to login page if working correctly
             if (response.ok) 
