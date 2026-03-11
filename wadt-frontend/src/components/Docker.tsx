@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
 import { Container, Row, Col, Button } from "react-bootstrap"
 
@@ -45,6 +45,48 @@ const Docker = ({ docker = [] }: DockerList) => {
   const [containerIds, setContainerIds] = useState<{ [key: string]: string }>(
     {},
   );
+
+  useEffect(() => {
+    // Hydrate running containers after a page reload so buttons show "Open App"
+    const hydrateRunningContainers = async () => {
+      try {
+        const response = await fetch("/wadtapp/containers/", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        if (!response.ok) return;
+
+        const data = (await response.json()) as Array<{
+          id: string;
+          name: string;
+          status: string;
+          external_url: string | null;
+        }>;
+
+        for (const c of data) {
+          if (!c?.name || !c?.id) continue;
+
+          setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
+
+          if (c.external_url) {
+            setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
+            setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
+          } else if (c.status === "running") {
+            // Container is running but URL isn't ready yet; reuse readiness polling
+            setContainerStatus((prev) => ({ ...prev, [c.name]: "loading" }));
+            pollForReadiness(c.id, c.name);
+          }
+        }
+      } catch {
+        // ignore (user may be logged out or backend down)
+      }
+    };
+
+    hydrateRunningContainers();
+    // Only run on mount; state updates happen via setters above
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 1. Start Container
   const handleStart = async (imageName: string, containerName: string) => {
