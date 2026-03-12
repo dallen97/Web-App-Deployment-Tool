@@ -33,11 +33,16 @@ ALLOWED_VULN_IMAGES = [
     "vulnerables/web-dvwa"
 ]
 
-def get_secure_container_config(user_id_str):
+def get_secure_container_config(user_id_str, container_name):
+    from decouple import config
+    app_domain = config("APP_DOMAIN", default="localhost")
     return {
         "detach": True, 
-        "publish_all_ports": True, #local dev, need to implement reverse proxy
-        "labels": {"wadt.user_id": user_id_str},
+        "labels": {
+            "wadt.user_id": user_id_str,
+            "traefik.enable": "true",
+            f"traefik.http.routers.{container_name}.rule": f"Host(`{container_name}.{app_domain}`)",
+        },
         "mem_limit": CONTAINER_MEM_LIMIT,
         "memswap_limit": CONTAINER_MEM_LIMIT,
         "cpu_period": CONTAINER_CPU_PERIOD,
@@ -259,8 +264,11 @@ def start_container(request):
              return JsonResponse({"error": "Quota exceeded."}, status=429)
 
         client.images.pull(image_name)
-        config = get_secure_container_config(user_id_str)
-        new_container = client.containers.run(image_name, **config)
+        import uuid
+        unique_id = str(uuid.uuid4())[:6] #generates the url-safe container name
+        explicit_name = f"wadt-user{request.user.id}-{unique_id}"
+        config = get_secure_container_config(user_id_str, explicit_name)
+        new_container = client.containers.run(image_name, name=explicit_name, **config)
  
         db_container.docker_container_id = new_container.short_id
         db_container.status = "RUN"
@@ -380,30 +388,25 @@ def check_container_ready(request, container_id):
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
-
+    
     try:
-        container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response: 
+        docker_container, error_response = _get_user_container(client, request.user, container_id)
+        if error_response:
             return error_response
 
-        container.reload()
-        url = get_container_url(request, container) if container.status == "running" else None
-        # Only report ready when the container is running and the app responds to HTTP
-        is_ready = (
-            container.status == "running"
-            and url is not None
-            and _container_http_reachable(url)
-        )
-
-        return JsonResponse({
-            "ready": is_ready,
-            "status": container.status,
-            "url": url
-        })
+        if docker_container.status == "running":
+            from decouple import config
+            app_domain = config("APP_DOMAIN", default="localhost")
+            protocol = "http" if app_domain == "localhost" else "https"
+            subdomain_url = f"{protocol}://{docker_container.name}.{app_domain}"
         
-    except Exception as e:
-        print(f"Error in check_container_ready: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred."}, status=500)
+            return JsonResponse({
+                "ready": True,
+                "url": subdomain_url
+            })
+        else:
+            return JsonResponse({"ready": False})
+            
     finally:
         client.close()
 
