@@ -15,11 +15,15 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from datetime import timedelta
+from decouple import config
 
 from .models import Container
 
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
+
+# Base URL to reach Traefik's HTTP entrypoint (no DNS required)
+TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
 MAX_CONTAINERS = 4
 CONTAINER_MEM_LIMIT = "512m"
@@ -78,18 +82,28 @@ def get_container_url(request, container):
     return None
 
 
-def _container_http_reachable(url):
+def _probe_traefik_host(hostname: str) -> bool:
     """
-    Try to GET the container URL. Returns True if the server responds
-    (any HTTP status), False on connection refused / timeout / other errors.
-    Used so we only report "ready" when the app inside the container is up.
+    Try to GET the container app via Traefik, without relying on DNS.
+    Sends a request to TRAEFIK_URL with Host header set to the
+    container's hostname (e.g. wadt-user2-xxxx.localhost).
+    Returns True when Traefik can reach the app (2xx–4xx),
+    False on connection issues or 5xx errors.
     """
-    if not url:
+    if not hostname:
         return False
     try:
-        req = urllib.request.Request(url, method="GET")
-        urllib.request.urlopen(req, timeout=CONTAINER_READINESS_TIMEOUT)
-        return True
+        req = urllib.request.Request(
+            TRAEFIK_URL,
+            method="GET",
+            headers={"Host": hostname},
+        )
+        resp = urllib.request.urlopen(req, timeout=CONTAINER_READINESS_TIMEOUT)
+        status = resp.getcode()
+        return 200 <= status < 500
+    except urllib.error.HTTPError as e:
+        # Treat any non-5xx HTTP error as "reachable" (app is up but maybe unauthorized/404)
+        return 200 <= e.code < 500
     except (urllib.error.URLError, socket.timeout, OSError):
         return False
 
@@ -394,18 +408,21 @@ def check_container_ready(request, container_id):
         if error_response:
             return error_response
 
-        if docker_container.status == "running":
-            from decouple import config
-            app_domain = config("APP_DOMAIN", default="localhost")
-            protocol = "http" if app_domain == "localhost" else "https"
-            subdomain_url = f"{protocol}://{docker_container.name}.{app_domain}"
-        
-            return JsonResponse({
-                "ready": True,
-                "url": subdomain_url
-            })
-        else:
+        if docker_container.status != "running":
             return JsonResponse({"ready": False})
+
+        app_domain = config("APP_DOMAIN", default="localhost")
+        protocol = "http" if app_domain == "localhost" else "https"
+        hostname = f"{docker_container.name}.{app_domain}"
+        subdomain_url = f"{protocol}://{hostname}"
+
+        # Backend readiness: only mark ready when Traefik can reach this host
+        is_ready = _probe_traefik_host(hostname)
+
+        return JsonResponse({
+            "ready": is_ready,
+            "url": subdomain_url if is_ready else None
+        })
             
     finally:
         client.close()
