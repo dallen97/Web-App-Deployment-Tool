@@ -106,6 +106,12 @@ def workbench(request, container_id):
 @require_http_methods(["POST"])
 def register_user(request):
     #create user account
+    return JsonResponse(
+        #temporary delete once we push to live
+        {'error': 'Registration has been temporarily disabled'}, 
+        status=403
+    )
+
     try:
         data = json.loads(request.body)
         username = data.get('username')
