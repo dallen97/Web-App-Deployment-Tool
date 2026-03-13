@@ -105,3 +105,6 @@ Create the network for Docker containers to run in
 
 `$ docker network create wadt_sandbox_network`
 
+Run the following to bring up the traefik container
+
+`$ docker compose -f docker-compose.traefik.yml up -d`
