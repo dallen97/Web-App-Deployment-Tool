@@ -14,9 +14,10 @@ from django.contrib.auth.decorators import login_required
 from django.views.decorators.csrf import ensure_csrf_cookie 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
+from django.core.paginator import Paginator
 from datetime import timedelta
 
-from .models import Container
+from .models import Container, Organization, UserProfile, ActionLog
 
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
@@ -106,12 +107,6 @@ def workbench(request, container_id):
 @require_http_methods(["POST"])
 def register_user(request):
     #create user account
-    return JsonResponse(
-        #temporary delete once we push to live
-        {'error': 'Registration has been temporarily disabled'}, 
-        status=403
-    )
-
     try:
         data = json.loads(request.body)
         username = data.get('username')
@@ -123,6 +118,7 @@ def register_user(request):
             return JsonResponse({'error': 'Username unavailable'}, status=409)
         
         user = User.objects.create_user(username=username, password=password)
+        log_user_action(user, "Created a new account")
 
         return JsonResponse({'status': 'Success', 'message': 'User created successfully', 'user_id': user.id}, status=201)
 
@@ -148,6 +144,7 @@ def login_user(request):
         if user is not None:
             #creates session id, that's sent back to browser as a cookie
             login(request, user)
+            log_user_action(user, "Logged in")
             return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
         else:
             return JsonResponse({'error': 'Invalid credentials.'}, status=401)
@@ -164,13 +161,11 @@ def logout_user(request):
     logout(request)
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 
-
 @login_required
 def current_user(request):
     return JsonResponse({
         "username": request.user.username,
     }) 
-
 
 @require_http_methods(["GET"])
 @login_required
@@ -238,6 +233,10 @@ def start_container(request):
     try:
         body = json.loads(request.body)
         image_name = body.get('imageName')
+
+        if image_name not in ALLOWED_VULN_IMAGES:
+            return JsonResponse({"error": "Unauthorized image requested."}, status=403)
+
         app_name = body.get('name')
         user_id_str = str(request.user.id)
 
@@ -279,7 +278,8 @@ def start_container(request):
         db_container.docker_container_id = new_container.short_id
         db_container.status = "RUN"
         db_container.save()
-        
+        log_user_action(request.user, f"Started container '{db_container.name}'", db_container)
+
         return JsonResponse({"status": "success", "id": new_container.short_id}, status=201)
         
     except Exception as e:
@@ -311,7 +311,10 @@ def stop_container(request, container_id):
 
         container.stop()
 
-        Container.objects.filter(docker_container_id = container_id, user = request.user).update(status="STOP")
+        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+        db_container.status = "STOP"
+        db_container.save()
+        log_user_action(request.user, f"Stopped container '{db_container.name}'", db_container)
 
         return JsonResponse({"status": "success", "message": f"Container {container_id} stopped."})
     except Exception as e:
@@ -334,7 +337,11 @@ def restart_container(request, container_id):
 
         container.restart()
 
-        Container.objects.filter(docker_container_id=container_id, user=request.user).update(status="RUN")
+        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+        db_container.status = "RUN"
+        db_container.save()
+
+        log_user_action(request.user, f"Refreshed container '{db_container.name}'", db_container)
 
         return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
     except Exception as e:
@@ -368,14 +375,13 @@ def reset_container(request, container_id):
         config = get_secure_container_config(user_id_str)
         new_container = client.containers.run(image_name, **config)
 
-        Container.objects.filter(
-            docker_container_id=container_id,
-            user=request.user
-        ).update(
-            docker_container_id=new_container.short_id,
-            name=new_container.name,
-            status="RUN"
-        )
+        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+        db_container.docker_container_id = new_container.short_id
+        db_container.name = new_container.name
+        db_container.status = "RUN"
+        db_container.save()
+
+        log_user_action(request.user, f"Reset container '{db_container.name}'", db_container)
 
         return JsonResponse({
             "status": "success",
@@ -387,6 +393,286 @@ def reset_container(request, container_id):
         return JsonResponse({"error": "An internal error occurred."}, status=500)
     finally:
         client.close()
+
+@require_http_methods(["POST"])
+@login_required
+def request_teacher_status(request):
+    profile = request.user.profile
+    if profile.role in ['ADMIN', 'SUPER']:
+        return JsonResponse({"error": "You already have elevated privileges."}, status=400)
+    
+    if profile.is_pending_teacher:
+        return JsonResponse({"message": "Your request is already pending review."}, status=200)
+
+    profile.is_pending_teacher = True
+    profile.save()
+    log_user_action(request.user, "Requested Teacher/Admin privileges")
+    return JsonResponse({
+        "status": "success",
+        "message": "Teacher status requested. Awaiting approval."
+    })
+
+@require_http_methods(["GET"])
+@login_required
+def get_pending_teachers(request):
+    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+        return JsonResponse({"error": "Unauthorized access."}, status=403)
+
+    pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
+    
+    data = [{
+        "user_id": p.user.id,
+        "username": p.user.username,
+        "date_joined": p.user.date_joined.strftime("%Y-%m-%d")
+    } for p in pending_profiles]
+
+    return JsonResponse({"pending_requests": data})
+
+@require_http_methods(["POST"])
+@login_required
+def approve_teacher(request, target_user_id):
+    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+        return JsonResponse({"error": "Unauthorized access."}, status=403)
+
+    try:
+        from django.contrib.auth.models import User
+        target_user = User.objects.get(id=target_user_id)
+        target_profile = target_user.profile
+
+        if not target_profile.is_pending_teacher:
+            return JsonResponse({"error": "This user does not have a pending request."}, status=400)
+        
+        target_profile.role = 'ADMIN'
+        target_profile.is_pending_teacher = False
+        target_profile.save()
+        log_user_action(request.user, f"Approved Teacher privileges for user '{target_user.username}'")
+
+        return JsonResponse({
+            "status": "success", 
+            "message": f"User {target_user.username} is now an Admin/Teacher."
+        })
+
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Target user not found."}, status=404)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+@require_http_methods(["POST"])
+@login_required
+def create_organization(request):
+    user_role = getattr(request.user.profile, 'role', 'STUDENT')
+    if user_role not in ['ADMIN', 'SUPER']:
+        return JsonResponse({
+            "error": "Unauthorized. Only approved Teachers and Admins can create organizations."
+        }, status=403)
+
+    try:
+        data = json.loads(request.body)
+        org_name = data.get('name', '').strip()
+
+        if not org_name:
+            return JsonResponse({"error": "Organization name is required."}, status=400)
+
+        new_org = Organization.objects.create(name=org_name)
+
+        profile = request.user.profile
+        profile.organization = new_org
+        profile.save()
+        log_user_action(request.user, f"Created organization '{new_org.name}'")
+        Container.objects.filter(user=request.user).update(organization=new_org)
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Organization '{new_org.name}' created successfully.",
+            "org_code": new_org.org_code,
+            "organization_name": new_org.name
+        }, status=201)
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON format."}, status=400)
+    except Exception as e:
+        print(f"Error in create_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["POST"])
+@login_required
+def join_organization(request):
+    try:
+        data = json.loads(request.body)
+        org_code = data.get('org_code', '').strip().upper()
+
+        if not org_code:
+            return JsonResponse({"error": "Organization code is required."}, status=400)
+
+        try:
+            organization = Organization.objects.get(org_code=org_code)
+        except Organization.DoesNotExist:
+            return JsonResponse({"error": "Invalid organization code. Please check with your teacher."}, status=404)
+
+        profile = request.user.profile
+        profile.organization = organization
+        profile.save()
+
+        Container.objects.filter(user=request.user).update(organization=organization)
+        log_user_action(request.user, f"Joined organization '{organization.name}'")
+        return JsonResponse({
+            "status": "success", 
+            "message": f"Successfully joined {organization.name}.",
+            "organization_name": organization.name
+        })
+
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON format."}, status=400)
+    except Exception as e:
+        print(f"Error in join_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["POST"])
+@login_required
+def leave_organization(request):
+    try:
+        profile = request.user.profile
+
+        if not profile.organization:
+            return JsonResponse({"error": "You are not currently in an organization."}, status=400)
+        
+        org_name = profile.organization
+        profile.organization = None
+        profile.save()
+
+        Container.objects.filter(user=request.user).update(organization=None)
+        log_user_action(request.user, f"Left organization '{org_name}'")
+        return JsonResponse({
+            "status": "success",
+            "message": f"Successfully left {org_name}."
+        })
+
+    except Exception as e:
+        print(f"Error in leave_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["GET"])
+@login_required
+def get_container_logs(request, container_id):
+    container_record = get_object_or_404(Container, docker_container_id=container_id)
+    user_profile = getattr(request.user, 'profile', None)
+    user_role = user_profile.role if user_profile else 'STUDENT'
+
+    is_authorized = False
+    if user_role == 'SUPER':
+        is_authorized = True 
+    elif user_role == 'ADMIN' and user_profile.organization and container_record.organization == user_profile.organization:
+        is_authorized = True
+    elif container_record.user == request.user:
+        is_authorized = True
+            
+    if not is_authorized:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    unified_logs = []
+
+    action_logs = ActionLog.objects.filter(container=container_record).order_by('-timestamp')[:50]
+    for alog in action_logs:
+        unified_logs.append({
+            "timestamp": alog.timestamp.isoformat(), 
+            "source": "SYSTEM",
+            "message": f"User '{alog.user.username}' {alog.action}"
+        })
+
+    client = get_docker_client()
+    if client:
+        try:
+            docker_container = client.containers.get(container_id)
+            raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
+            log_lines = raw_logs.decode('utf-8').split('\n')
+
+            noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
+
+            for line in log_lines:
+                if not line.strip(): continue
+                if any(noise in line for noise in noise_filters): continue
+
+                parts = line.split(' ', 1)
+                if len(parts) == 2:
+                    unified_logs.append({
+                        "timestamp": parts[0], 
+                        "source": "CONTAINER",
+                        "message": parts[1]    
+                    })
+        except Exception as e:
+            print(f"Docker log error: {e}")
+        finally:
+            client.close()
+
+    unified_logs.sort(key=lambda x: x['timestamp'])
+
+    return JsonResponse({"status": "success", "logs": unified_logs})
+
+@require_http_methods(["GET"])
+@login_required
+def get_all_containers_admin(request):
+    user_profile = getattr(request.user, 'profile', None)
+    if not user_profile:
+        return JsonResponse({"error": "Profile not found."}, status=400)
+
+    user_role = user_profile.role
+
+    if user_role not in ['SUPER', 'ADMIN']:
+        return JsonResponse({"error": "Unauthorized access."}, status=403)
+
+    try:
+        page_number = request.GET.get('page', 1)
+        users_with_containers = User.objects.filter(container__isnull=False).distinct()
+
+        if user_role == 'ADMIN':
+            admin_org = user_profile.organization
+            if not admin_org:
+                users_with_containers = User.objects.none()
+            else:
+                users_with_containers = users_with_containers.filter(profile__organization=admin_org)
+
+        users_with_containers = users_with_containers.order_by('username')
+        paginator = Paginator(users_with_containers, 10)
+        page_obj = paginator.get_page(page_number)
+        users_on_page = page_obj.object_list
+
+        if user_role == 'ADMIN':
+            containers = Container.objects.filter(
+                user__in=users_on_page, 
+                organization=admin_org
+            ).select_related('user')
+        else:
+            containers = Container.objects.filter(user__in=users_on_page).select_related('user')
+
+        organized_data = {user.username: [] for user in users_on_page}
+        for container in containers:
+            organized_data[container.user.username].append({
+                "container_id": container.docker_container_id,
+                "name": container.name,
+                "status": container.status,
+                "created_at": container.created_at.isoformat() if hasattr(container, 'created_at') else None,
+            })
+
+        response_data = [
+            {"username": user, "containers": c_list} 
+            for user, c_list in organized_data.items()
+        ]
+
+        return JsonResponse({
+            "data": response_data,
+            "organization_scope": admin_org.name if user_role == 'ADMIN' and admin_org else "Global (Super-Admin)",
+            "pagination": {
+                "current_page": page_obj.number,
+                "total_pages": paginator.num_pages,
+                "total_users": paginator.count,
+                "has_next": page_obj.has_next(),
+                "has_previous": page_obj.has_previous()
+            }
+        })
+
+    except Exception as e:
+        print(f"Error in get_all_containers_admin: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
 
 @require_http_methods(["POST"])
 @login_required
@@ -415,6 +701,16 @@ def check_container_ready(request, container_id):
             
     finally:
         client.close()
+
+def log_user_action(user, action_message, container=None):
+    try:
+        ActionLog.objects.create(
+            user=user, 
+            action=action_message, 
+            container=container
+        )
+    except Exception as e:
+        print(f"Failed to write audit log: {e}")
 
 @require_http_methods(["GET"])
 @ensure_csrf_cookie
