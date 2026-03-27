@@ -1,0 +1,21 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedByDefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"        # HTTP entrypoint
+      - "8080:8080"    # optional: Traefik dashboard at http://localhost:8080
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - wadt_sandbox_network
+
+networks:
+  wadt_sandbox_network:
+    external: true
