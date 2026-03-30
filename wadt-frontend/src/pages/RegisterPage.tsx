@@ -90,8 +90,8 @@ function RegisterPage(){
                 password
             };
     
-            const token = csrfToken || getCookie('wadt_csrftoken') || '';
-            const response = await fetch('/wadtapp/auth/register/', {
+            const token = csrfToken || getCookie('/api/get_csrf_token/') || '';
+            const response = await fetch('/api/register_user/', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

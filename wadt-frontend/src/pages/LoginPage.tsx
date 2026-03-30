@@ -81,7 +81,7 @@ function LoginPage(){
             };
 
             const token = csrfToken || getCookie('wadt_csrftoken') || '';
-            const response = await fetch('/wadtapp/auth/login/', {
+            const response = await fetch('/api/login_user/', {
                 method: 'POST',
                 credentials: 'include',
                 headers: {

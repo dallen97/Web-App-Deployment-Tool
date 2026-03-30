@@ -5,6 +5,7 @@ import RegisterPage from "./pages/RegisterPage";
 import Dashboard from "./components/DashboardLayout";
 import Account from "./pages/AccountPage";
 import DashboardLayout from "./components/DashboardLayout";
+import LogPage from "./pages/LogPage";
 
 //Create routes for the website
 
@@ -37,6 +38,12 @@ const router = createBrowserRouter([
     path: "/account",
     element: <Account />,
   },
+
+  // Logs page
+  {
+    path: "/logs",
+    element: <LogPage />,
+  }
 ]);
 
 export default router;
