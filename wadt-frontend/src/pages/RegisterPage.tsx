@@ -52,7 +52,7 @@ function RegisterPage(){
 
     // get CSRF token from backend (and set cookie for same origin)
     useEffect(() => {
-        fetch('/wadtapp/auth/csrf/', { method: 'GET', credentials: 'include' })
+        fetch('/api/get_csrf_token/', { method: 'GET', credentials: 'include' })
             .then(res => {
                 if (!res.ok) return null;
                 const contentType = res.headers.get('content-type');
@@ -90,7 +90,7 @@ function RegisterPage(){
                 password
             };
     
-            const token = csrfToken || getCookie('/api/get_csrf_token/') || '';
+            const token = csrfToken || getCookie('wadt_csrftoken') || '';
             const response = await fetch('/api/register_user/', {
                 method: 'POST',
                 headers: {

@@ -22,7 +22,7 @@ function LogPage(){
 
     // Get list of running containers when opening page
     useEffect(() => {
-        fetch("wadtapp/get_containers/", { credentials: "include" })
+        fetch("/api/get_containers/", { credentials: "include" })
         .then(res => res.json())
         .then(data => {
             const containers = data.map((c: ContainerInfo) => ({
@@ -39,7 +39,7 @@ function LogPage(){
         if (!currentContainer) // no containers running
             return;
         // containers are running
-        fetch('api/get_container_logs/${currentContainer.id}/', {credentials: "include"})
+        fetch('/api/get_container_logs/${currentContainer.id}/', {credentials: "include"})
             .then(res => res.json())
             .then(data => setLogs(data.logs))
             .catch(err => console.error("Failed to fetch containers:", err));

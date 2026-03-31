@@ -26,7 +26,7 @@ function DashboardContent() {
 
   //Fetch username
   useEffect(() => {
-    fetch("wadtapp/api/me/", {
+    fetch("/api/current_user/", {
       credentials: "include"
     })
     .then(res => {
@@ -40,7 +40,7 @@ function DashboardContent() {
   //Fetch containers
   useEffect(() => {
     const fetchContainers = () => {
-      fetch("wadtapp/containers/", {
+      fetch("/api/get_containers/", {
         credentials: "include"
       })
       .then(res => res.json())

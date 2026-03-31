@@ -50,7 +50,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     // Hydrate running containers after a page reload so buttons show "Open App"
     const hydrateRunningContainers = async () => {
       try {
-        const response = await fetch("/wadtapp/containers/", {
+        const response = await fetch("/api/get_containers/", {
           method: "GET",
           credentials: "include",
         });
@@ -94,7 +94,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
-      const response = await fetch("wadtapp/containers/start/", {
+      const response = await fetch("/api/start_container/", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -133,7 +133,7 @@ const Docker = ({ docker = [] }: DockerList) => {
       try {
         // Using the new RESTful URL structure: containers/<id>/check-ready/
         const response = await fetch(
-          `wadtapp/containers/${containerId}/check-ready/`,
+          `/api/check_container_ready/${containerId}/`,
           {
             method: "POST",
             credentials: "include",
@@ -186,7 +186,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     const containerId = containerIds[containerName];
 
     try {
-      const response = await fetch(`wadtapp/containers/${containerId}/stop/`, {
+      const response = await fetch(`/api/stop_container/${containerId}/`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -221,7 +221,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
     try {
       const response = await fetch(
-        `wadtapp/containers/${containerId}/restart/`,
+        `/api/restart_container/${containerId}/`,
         {
           method: "POST",
           credentials: "include",
