@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import { Container, Row, Col, Button } from "react-bootstrap"
-
+import { Container, Row, Col, Button, Table } from "react-bootstrap";
 
 export interface DockerProps {
   name: string;
@@ -70,7 +69,10 @@ const Docker = ({ docker = [] }: DockerList) => {
           setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
 
           if (c.external_url) {
-            setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
+            setContainerUrls((prev) => ({
+              ...prev,
+              [c.name]: c.external_url as string,
+            }));
             setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
           } else if (c.status === "running") {
             // Container is running but URL isn't ready yet; reuse readiness polling
@@ -122,7 +124,7 @@ const Docker = ({ docker = [] }: DockerList) => {
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
       }
     } catch (error) {
-      console.error("Error:", error);
+      console.error("Error: ", error);
       setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
     }
   };
@@ -220,17 +222,14 @@ const Docker = ({ docker = [] }: DockerList) => {
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
-      const response = await fetch(
-        `wadtapp/containers/${containerId}/restart/`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-          },
+      const response = await fetch(`/api/restart_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
         },
-      );
+      });
       const data = await response.json();
 
       if (response.ok) {
@@ -249,15 +248,16 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   return (
     <>
-      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)"}}>
+      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)" }}>
         {docker.map((d, i) => (
-          <div key={i} style={{ marginTop: "35px" }} >
+          <div key={i} style={{ marginTop: "35px" }}>
+            <Table></Table>
             <Container className="mb-3">
               <Row className="align-items-center">
                 <Col>
                   <strong>{d.name} container</strong>
                 </Col>
-                
+
                 <Col className="text-end">
                   {/* 1. IDLE STATE: Show Start Button */}
                   {(!containerStatus[d.name] ||
@@ -265,14 +265,18 @@ const Docker = ({ docker = [] }: DockerList) => {
                     <Button
                       variant="primary"
                       onClick={() => handleStart(d.imageName, d.name)}
-                      style={{ marginLeft: "10px" }}
+                      style={{ marginLeft: "0px" }}
                     >
                       Start
                     </Button>
                   )}
                   {/* 2. LOADING STATE: Show Spinner */}
                   {containerStatus[d.name] === "loading" && (
-                    <Button variant="primary" disabled style={{ marginLeft: "10px" }}>
+                    <Button
+                      variant="primary"
+                      disabled
+                      style={{ marginLeft: "10px" }}
+                    >
                       <Spinner
                         as="span"
                         animation="border"
@@ -309,8 +313,8 @@ const Docker = ({ docker = [] }: DockerList) => {
                   >
                     Restart
                   </Button>
-                  </Col>
-                </Row>
+                </Col>
+              </Row>
             </Container>
           </div>
         ))}
@@ -320,6 +324,5 @@ const Docker = ({ docker = [] }: DockerList) => {
     </>
   );
 };
-
 
 export default Docker;

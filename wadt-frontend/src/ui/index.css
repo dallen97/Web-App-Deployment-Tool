@@ -1,25 +1,74 @@
 /*Add more too root*/
 /*Imported Cyborg theme from bootswatch*/
+/*Imported JetBrains Mono font*/
 @import "bootswatch/dist/cyborg/bootstrap.min.css";
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Exo 2:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap");
 /* Customize themes in more detail under root*/
-:root {
 
+:root {
+  --primary-theme1: #2496ed;
+  --secondary-theme1: #066da5;
+  --background-theme1: #000000;
+  --text-theme1: #ffffff;
 }
 /* Formats text inside input boxes for login/register*/
 .loginForm input::placeholder {
-color: var(--bs-primary);
-font-weight: 900;
-font-size: 1.2rem;
-font-family: monospace;
-opacity: 1;
+  color: var(--bs-primary);
+  font-weight: 900;
+  font-size: 1.2rem;
+  font-family: monospace;
+  opacity: 1;
 }
 /* Formats text inside input boxes for login/register*/
 .loginForm input {
-color: var(--bs-primary);
-font-weight: 900;
-font-size: 1.2rem;
-font-family: monospace;
-opacity: 1;
+  color: var(--bs-primary);
+  font-weight: 900;
+  font-size: 1.2rem;
+  font-family: monospace;
+  opacity: 1;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(hsl(210, 83%, 55%, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(210, 83%, 55%, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
 
+h1 {
+  font-weight: 700;
+  font-size: 4.25rem;
+  font-family: "Exo 2";
+}
+
+.card_title {
+  font-weight: 600;
+  font-size: 1.75rem;
+  font-family: "Exo 2";
+  color: var(--text-theme1);
+  border: 1px solid var(--primary-theme1);
+}
+
+.containers_card {
+  background-color: rgb(10, 10, 10);
+  border-top: 2.75px solid var(--primary-theme1);
+  border-right: 0.5px solid var(--primary-theme1);
+  border-left: 0.5px solid var(--primary-theme1);
+  border-bottom: 0.5px solid var(--primary-theme1);
+  font-family: "Exo 2";
+  font-weight: 400;
+  color: white;
+}
+
+p {
+  font-family: monospace;
+  font-variant-caps: all-small-caps;
+  font-size: 20px;
+  color: var(--primary-theme1);
+}

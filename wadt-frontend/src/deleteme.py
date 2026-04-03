@@ -11,7 +11,7 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout 
 from django.views.decorators.http import require_http_methods 
 from django.contrib.auth.decorators import login_required 
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie # REMOVE THIS LATER
+from django.views.decorators.csrf import ensure_csrf_cookie 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.core.paginator import Paginator
@@ -143,7 +143,6 @@ def register_user(request):
 
 @require_http_methods(["POST"])
 #@ensure_csrf_cookie
-@csrf_exempt
 def login_user(request):
     #logs in a user
     try:
@@ -177,25 +176,13 @@ def logout_user(request):
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 
 @login_required
-# HACK: Modified this file to respond with role info.
 def current_user(request):
-    profile = getattr(request.user, 'profile', None)
-    org_info = None
-    if profile and profile.organization:
-        org_info = {
-            "name": profile.organization.name,
-            "code": profile.organization.org_code
-        }
-
     return JsonResponse({
         "username": request.user.username,
-        "role": profile.role if profile else "STUDENT",
-        "organization": org_info
     }) 
 
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt # HACK: Remove this later
 def get_containers(request):
     #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
@@ -326,7 +313,6 @@ def _get_user_container(client, user, container_id):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def stop_container(request, container_id):
     client = get_docker_client()
     if not client:
@@ -353,7 +339,6 @@ def stop_container(request, container_id):
     
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def restart_container(request, container_id):
     #used if somebody needs to refresh container to apply changes
     client = get_docker_client()
@@ -425,7 +410,6 @@ def reset_container(request, container_id):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt
 def request_teacher_status(request):
     profile = request.user.profile
     if profile.role in ['ADMIN', 'SUPER']:
@@ -442,37 +426,10 @@ def request_teacher_status(request):
         "message": "Teacher status requested. Awaiting approval."
     })
 
-'''
-# Add to views.py or create a utils.py file
-def check_user_role(request, allowed_roles):
-    """Check if user has one of the allowed roles.
-    
-    Args:
-        request: Django request object
-        allowed_roles: List of allowed role strings ['ADMIN', 'SUPER']
-    
-    Returns:
-        tuple: (is_authorized, user_role)
-    """
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    is_authorized = user_role in allowed_roles
-    return is_authorized, user_role
-
-# Usage example:
-is_authorized, user_role = check_user_role(request, ['ADMIN', 'SUPER'])
-if not is_authorized:
-    return JsonResponse({"error": "Unauthorized access."}, status=403)
-'''
-
-
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def get_pending_teachers(request):
-    # HACK: REPLACE THIS WITH PROPER ROLE CHECKING
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['SUPER', 'ADMIN', 'STUDENT']:  # Allow ADMIN for testing
-    # FIXME: if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
@@ -487,10 +444,7 @@ def get_pending_teachers(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
-
-# HACK: Set target_user_id = 2 for testing, undo this when done
-def approve_teacher(request, target_user_id = 2): 
+def approve_teacher(request, target_user_id):
     if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
@@ -519,10 +473,9 @@ def approve_teacher(request, target_user_id = 2):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def create_organization(request):
     user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['ADMIN', 'SUPER', 'STUDENT']: # HACK: Allowing STUDENTS TO AS WELL FOR TESTING
+    if user_role not in ['ADMIN', 'SUPER']:
         return JsonResponse({
             "error": "Unauthorized. Only approved Teachers and Admins can create organizations."
         }, status=403)
@@ -557,7 +510,6 @@ def create_organization(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def join_organization(request):
     try:
         data = json.loads(request.body)
@@ -591,7 +543,6 @@ def join_organization(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def leave_organization(request):
     try:
         profile = request.user.profile
@@ -673,7 +624,6 @@ def get_container_logs(request, container_id):
 
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt
 def get_all_containers_admin(request):
     user_profile = getattr(request.user, 'profile', None)
     if not user_profile:
@@ -779,10 +729,7 @@ def log_user_action(user, action_message, container=None):
     except Exception as e:
         print(f"Failed to write audit log: {e}")
 
-    
-
 @require_http_methods(["GET"])
 @ensure_csrf_cookie
 def get_csrf_token(request):
     return JsonResponse({"csrfToken": get_token(request)})
-

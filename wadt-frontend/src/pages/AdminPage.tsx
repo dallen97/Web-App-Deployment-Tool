@@ -1,0 +1,113 @@
+import { useState } from "react";
+import { Form, Container, InputGroup } from "react-bootstrap";
+import UserTables from "../components/userTables";
+
+// NOTE: Info includes: user, container names, container status, time remaining
+
+// TODO: Change UI design to match template
+// TODO: create functions to collect user info: containers open, status, and time remaining.
+
+const fontStyle: React.CSSProperties = {
+  fontFamily: "monospace",
+  fontVariantCaps: "all-small-caps",
+  fontSize: 20,
+  color: "var(--primary-theme1)",
+};
+
+function AdminPage() {
+  const [views, setViews] = useState("createClass");
+  const [numMembers] = useState<number>(0);
+  const [numContainers] = useState<number>(0);
+  const [groupName, setGroupName] = useState<string>("");
+  const [groupCode, setGroupCode] = useState<string>("XXXXXX");
+
+  const createClass = () => {
+    // NOTE: Current testing: testing to see if forms works
+
+    // ITEM: Make submit form for creating group
+
+    const createGroup = async (e: React.FormEvent) => {
+      e.preventDefault(); // Prevents form submission upon reloading the page
+      try {
+        const response = await fetch("api/create_organization/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: groupName,
+          }),
+          credentials: "include",
+        });
+        const data = await response.json();
+        if (response.ok) {
+          console.log("Group created successfully:", data);
+          setViews("admin_dash");
+          setGroupCode(data.org_code);
+        } else {
+          console.error("Failed to create group:", data);
+        }
+      } catch (error) {
+        console.error("Error creating group:", error);
+      }
+    };
+
+    return (
+      <>
+        <div className="d-flex flex-column min-vh-100 justify-content-center align-items-center">
+          <h3 style={{ marginBottom: "50px" }}>Enter Organization Name</h3>
+          <Form onSubmit={createGroup}>
+            <InputGroup className="mb-3">
+              <Form.Control
+                type="text"
+                placeholder="Enter Group Name"
+                style={{
+                  display: "inline-block",
+                  width: "200px",
+                  marginLeft: "10px",
+                }}
+                value={groupName}
+                onChange={(e) => setGroupName(e.target.value)}
+              />
+            </InputGroup>
+          </Form>
+        </div>
+      </>
+    );
+  };
+
+  const admin_dash = () => {
+    return (
+      <>
+        <div className="d-flex flex-column min-vh-100">
+          <main className="flex-grow-1 d-flex align-items-center justify-content-center">
+            <Container className="text-center" style={{ maxWidth: "1000px" }}>
+              <h1>Welcome Admin</h1>
+              <Container>
+                <span style={fontStyle}>
+                  Number of Members: {numMembers} |{" "}
+                </span>
+                <span style={fontStyle}>
+                  Number of Containers: {numContainers} |{" "}
+                </span>
+                <span style={fontStyle}>Group Name: {groupName} | </span>
+                <span style={fontStyle}>Group Code: {groupCode} | </span>
+              </Container>
+              <UserTables />
+            </Container>
+          </main>
+        </div>
+      </>
+    );
+  };
+
+  return (
+    <>
+      {/*switches view state*/}
+      {views === "createClass" && createClass()}
+      {views === "admin_dash" && admin_dash()}
+    </>
+  );
+}
+
+export default AdminPage;
