@@ -3,6 +3,7 @@ import urllib.request
 import urllib.error
 import socket
 import docker 
+import time
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
 from django.shortcuts import get_object_or_404, render
@@ -367,44 +368,50 @@ def restart_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
-    #used if docker container breaks
-    client = get_docker_client()
+    client = docker.from_env()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
     try:
-        container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response: 
+        old_container, error_response = _get_user_container(client, request.user, container_id)
+        if error_response:
             return error_response
 
-        if not container.image.tags:
-             return JsonResponse({"error": "Cannot reset, original image tag not indentified"}, status=400)
-        
-        image_name = container.image.tags[0]
-        user_id_str = str(request.user.id)
+        container_name = old_container.name
+        image_name = old_container.image.tags[0] # FIX 2: Added the 's' to tags
+        labels = old_container.labels
 
-        container.stop()
-        container.remove()
+        old_container.stop(timeout=5)
+        old_container.remove(force=True)
 
-        config = get_secure_container_config(user_id_str)
-        new_container = client.containers.run(image_name, **config)
+        time.sleep(2)
 
-        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
-        db_container.docker_container_id = new_container.short_id
-        db_container.name = new_container.name
-        db_container.status = "RUN"
-        db_container.save()
+        new_container = client.containers.run(
+            image_name,
+            name=container_name,
+            labels=labels,
+            detach=True,
+            network='wadt_sandbox_network'
+        )
 
-        log_user_action(request.user, f"Reset container '{db_container.name}'", db_container)
+        db_record = Container.objects.get(docker_container_id=container_id, user=request.user)
+        db_record.docker_container_id = new_container.short_id
+        db_record.status = "RUN"
+        db_record.save()
+
+        log_user_action(request.user, f"Reset container '{db_record.name}'", db_record)
 
         return JsonResponse({
-            "status": "success",
-            "message": f"Container reset successfully.",
-            "new_id": new_container.short_id
-        }, status=201)
+            'status': 'success', 
+            'message': 'Container reset successfully.',
+            'new_id': new_container.short_id
+        })
+        
+    except docker.errors.NotFound:
+        return JsonResponse({'error': 'Original container not found in Docker.'}, status=404)
     except Exception as e:
         print(f"Error in reset_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred."}, status=500)
+        return JsonResponse({'error': "An internal error occurred."}, status=500)
     finally:
         client.close()
 
