@@ -18,7 +18,7 @@ function getCookie(name: string) {
     return cookieValue;
 }
 
-// Interfaces for type safety
+// Interfaces
 interface RegisterPayload 
 {
     username: string;
