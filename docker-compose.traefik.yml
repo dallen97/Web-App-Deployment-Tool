@@ -2,12 +2,15 @@ version: "3.8"
 
 services:
   traefik:
-    image: traefik:v3.1
+    image: traefik:v3.6.2
     command:
+      - "--log.level=DEBUG"
       - "--api.dashboard=true"
       - "--providers.docker=true"
+      - "--providers.docker.network=wadt_sandbox_network"
       - "--providers.docker.exposedByDefault=false"
       - "--entrypoints.web.address=:80"
+      - "--entrypoints.traefik.address=:8080"
     ports:
       - "80:80"        # HTTP entrypoint
       - "8080:8080"    # optional: Traefik dashboard at http://localhost:8080
