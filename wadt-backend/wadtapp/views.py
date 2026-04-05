@@ -195,7 +195,6 @@ def current_user(request):
 
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt # HACK: Remove this later
 def get_containers(request):
     #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
@@ -318,15 +317,19 @@ def _get_user_container(client, user, container_id):
     try:
         container = client.containers.get(container_id)
         
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
+        user_profile = getattr(user, 'profile', None)
+        user_role = user_profile.role if user_profile else 'STUDENT'
+
+        if user_role not in ['ADMIN', 'SUPER']:
+            if container.labels.get("wadt.user_id") != str(user.id):
+                return None, JsonResponse({"error": "Unauthorized"}, status=403)
+
         return container, None
     except NotFound:
         return None, JsonResponse({"error": "Container not found"}, status=404)
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def stop_container(request, container_id):
     client = get_docker_client()
     if not client:
@@ -339,7 +342,14 @@ def stop_container(request, container_id):
 
         container.stop()
 
-        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+        user_profile = getattr(request.user, 'profile', None)
+        user_role = user_profile.role if user_profile else 'STUDENT'
+
+        if user_role in ['ADMIN', 'SUPER']:
+            db_container = Container.objects.get(docker_container_id=container_id)
+        else:
+            db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+
         db_container.status = "STOP"
         db_container.save()
         log_user_action(request.user, f"Stopped container '{db_container.name}'", db_container)
@@ -353,7 +363,6 @@ def stop_container(request, container_id):
     
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def restart_container(request, container_id):
     #used if somebody needs to refresh container to apply changes
     client = get_docker_client()
@@ -467,13 +476,12 @@ if not is_authorized:
 
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def get_pending_teachers(request):
     # HACK: REPLACE THIS WITH PROPER ROLE CHECKING
     user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['SUPER', 'ADMIN', 'STUDENT']:  # Allow ADMIN for testing
-    # FIXME: if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
-        return JsonResponse({"error": "Unauthorized access."}, status=403)
+    if user_role not in ['SUPER', 'ADMIN',]:  # Allow ADMIN for testing
+        if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+            return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
     
@@ -487,10 +495,9 @@ def get_pending_teachers(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 
 # HACK: Set target_user_id = 2 for testing, undo this when done
-def approve_teacher(request, target_user_id = 2): 
+def approve_teacher(request, target_user_id): 
     if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
@@ -519,7 +526,6 @@ def approve_teacher(request, target_user_id = 2):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def create_organization(request):
     user_role = getattr(request.user.profile, 'role', 'STUDENT')
     if user_role not in ['ADMIN', 'SUPER', 'STUDENT']: # HACK: Allowing STUDENTS TO AS WELL FOR TESTING
@@ -557,7 +563,6 @@ def create_organization(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def join_organization(request):
     try:
         data = json.loads(request.body)
@@ -591,7 +596,6 @@ def join_organization(request):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt  # FIXME: Temporarily disabled for testing
 def leave_organization(request):
     try:
         profile = request.user.profile

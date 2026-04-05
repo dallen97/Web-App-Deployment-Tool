@@ -1,11 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Form, Container, InputGroup } from "react-bootstrap";
 import UserTables from "../components/userTables";
-
-// NOTE: Info includes: user, container names, container status, time remaining
-
-// TODO: Change UI design to match template
-// TODO: create functions to collect user info: containers open, status, and time remaining.
 
 const fontStyle: React.CSSProperties = {
   fontFamily: "monospace",
@@ -15,7 +10,7 @@ const fontStyle: React.CSSProperties = {
 };
 
 function AdminPage() {
-  const [views, setViews] = useState("createClass");
+  const [views, setViews] = useState("loading");
   const [numMembers] = useState<number>(0);
   const [numContainers] = useState<number>(0);
   const [groupName, setGroupName] = useState<string>("");
@@ -101,9 +96,35 @@ function AdminPage() {
     );
   };
 
+  // ITEM: On page load, checks if organization exists.
+  useEffect(() => {
+    const pageLoad = async () => {
+      try {
+        const response = await fetch("/api/current_user", {
+          credentials: "include",
+        });
+
+        const data = await response.json();
+
+        if (data?.organization) {
+          setGroupName(data.organization.name);
+          setGroupCode(data.organization.code);
+          setViews("admin_dash");
+        } else {
+          setViews("createClass");
+        }
+      } catch (error) {
+        console.error("Error: ", error);
+        setViews("createClass");
+      }
+    };
+    pageLoad();
+  }, []);
+
   return (
     <>
       {/*switches view state*/}
+      {views === "loading" && <p>Loading ...</p>}
       {views === "createClass" && createClass()}
       {views === "admin_dash" && admin_dash()}
     </>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
 import { Container, Row, Col, Button, Table } from "react-bootstrap";
+import DashboardPage from "../pages/DashboardPage";
 
 export interface DockerProps {
   name: string;
@@ -8,6 +9,7 @@ export interface DockerProps {
   stoplink: string;
   restartlink: string;
   imageName: string;
+  runningContainers: string;
 }
 
 export interface DockerList {
@@ -49,7 +51,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     // Hydrate running containers after a page reload so buttons show "Open App"
     const hydrateRunningContainers = async () => {
       try {
-        const response = await fetch("/wadtapp/containers/", {
+        const response = await fetch("/api/get_containers/", {
           method: "GET",
           credentials: "include",
         });
@@ -90,13 +92,33 @@ const Docker = ({ docker = [] }: DockerList) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ITEM: useEffect case for watching if containers are still running after admin shuts them down
+  useEffect(() => {
+    docker.forEach((d) => {
+      setContainerStatus((prev) => {
+        if (
+          d.runningContainers !== "running" &&
+          (prev[d.name] === "ready" || prev[d.name] === "loading")
+        ) {
+          setContainerUrls((prevUrls) => {
+            const updated = { ...prevUrls };
+            delete updated[d.name];
+            return updated;
+          });
+          return { ...prev, [d.name]: "idle" };
+        }
+        return prev;
+      });
+    });
+  }, [docker]);
+
   // 1. Start Container
   const handleStart = async (imageName: string, containerName: string) => {
     // Immediately show spinner
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
-      const response = await fetch("wadtapp/containers/start/", {
+      const response = await fetch("/api/start_container/", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -135,7 +157,7 @@ const Docker = ({ docker = [] }: DockerList) => {
       try {
         // Using the new RESTful URL structure: containers/<id>/check-ready/
         const response = await fetch(
-          `wadtapp/containers/${containerId}/check-ready/`,
+          `/api/check_container_ready/${containerId}/`,
           {
             method: "POST",
             credentials: "include",
@@ -188,7 +210,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     const containerId = containerIds[containerName];
 
     try {
-      const response = await fetch(`wadtapp/containers/${containerId}/stop/`, {
+      const response = await fetch(`/api/stop_container/${containerId}/`, {
         method: "POST",
         credentials: "include",
         headers: {
@@ -200,7 +222,6 @@ const Docker = ({ docker = [] }: DockerList) => {
 
       if (response.ok) {
         console.log(containerName, "container stopped.");
-        window.dispatchEvent(new Event("wadt:containers-changed"));
         // Reset start button state
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
         setContainerUrls((prev) => {

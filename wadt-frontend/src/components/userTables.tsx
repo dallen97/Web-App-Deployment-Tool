@@ -1,11 +1,13 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Button, Table } from "react-bootstrap";
 
 interface userInfo {
   name: string;
   con_name: string;
   con_status: string;
-  time_rem: number;
+  con_id: string;
+  started_at: string | null;
+  max_runtime_seconds: number;
 }
 
 function groupByUser(data: userInfo[]): Record<string, userInfo[]> {
@@ -23,11 +25,28 @@ function initials(name: string) {
   return name.slice(0, 2).toUpperCase();
 }
 
-function formatTime(seconds: number) {
-  if (!seconds) return "—";
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${m}m ${s}s`;
+const formatDuration = (totalSeconds: number) => {
+  const clamped = Math.max(0, Math.floor(totalSeconds));
+  const days = Math.floor(clamped / 86400);
+  const hours = Math.floor((clamped % 86400) / 3600);
+  const minutes = Math.floor((clamped % 3600) / 60);
+  const seconds = clamped % 60;
+  return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+};
+
+function getCookie(name: string) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== "") {
+    const cookies = document.cookie.split(";");
+    for (let i = 0; i < cookies.length; i++) {
+      const cookie = cookies[i].trim();
+      if (cookie.substring(0, name.length + 1) === name + "=") {
+        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+        break;
+      }
+    }
+  }
+  return cookieValue;
 }
 
 function UserTables() {
@@ -35,6 +54,16 @@ function UserTables() {
   const [extended, setExtended] = useState<Record<string, boolean>>({});
   const [isPolling, setIsPolling] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({});
+
+  const runSinceRef = useRef<Record<string, number>>({});
+
+  // 1-second tick
+  useEffect(() => {
+    const interval = setInterval(() => setNowMs(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const poll = useCallback(async () => {
     try {
@@ -43,38 +72,49 @@ function UserTables() {
         credentials: "include",
       });
 
-      if (!response.ok) {
+      if (!response.ok)
         throw new Error(`HTTP error! status: ${response.status}`);
-      }
 
       const { data } = await response.json();
 
-      const organizeData: userInfo[] = data.flatMap((user: any) =>
+      const organized: userInfo[] = data.flatMap((user: any) =>
         user.containers.map((container: any) => ({
           name: user.username,
           con_name: container.name,
           con_status: container.status,
-          time_rem: 0,
+          con_id: container.container_id ?? "",
+          started_at: container.started_at ?? null,
+          max_runtime_seconds: container.max_runtime_seconds ?? 86400,
         })),
       );
 
-      setData(organizeData);
+      const now = Date.now();
+      organized.forEach((row) => {
+        const key = `${row.name}-${row.con_name}`;
+        if (row.con_status === "RUN" && !(key in runSinceRef.current)) {
+          const startedMs = row.started_at ? Date.parse(row.started_at) : now;
+          runSinceRef.current[key] = Number.isFinite(startedMs)
+            ? startedMs
+            : now;
+        }
+        if (row.con_status !== "RUN") {
+          delete runSinceRef.current[key];
+        }
+      });
+
+      setData(organized);
       setError(null);
-      console.log("Organized Data: ", organizeData);
-    } catch (error) {
+    } catch {
       setError("Failed to fetch container data.");
-      console.log("ERROR fetching data");
     }
   }, []);
 
-  // Pause polling when tab is hidden
   useEffect(() => {
     const handle = () => setIsPolling(!document.hidden);
     document.addEventListener("visibilitychange", handle);
     return () => document.removeEventListener("visibilitychange", handle);
   }, []);
 
-  // Polling loop
   useEffect(() => {
     poll();
     if (!isPolling) return;
@@ -82,7 +122,6 @@ function UserTables() {
     return () => clearInterval(interval);
   }, [isPolling, poll]);
 
-  // Auto-expand new users without collapsing existing ones
   useEffect(() => {
     if (!data.length) return;
     const grouped = groupByUser(data);
@@ -99,22 +138,46 @@ function UserTables() {
     setExtended((prev) => ({ ...prev, [name]: !prev[name] }));
   };
 
+  const getTimeLeft = (row: userInfo): string => {
+    if (row.con_status !== "RUN") return "—";
+    const key = `${row.name}-${row.con_name}`;
+    const startedMs = runSinceRef.current[key];
+    if (!startedMs) return "—";
+    const uptimeSeconds = (nowMs - startedMs) / 1000;
+    const timeLeftSeconds = row.max_runtime_seconds - uptimeSeconds;
+    return timeLeftSeconds <= 0 ? "Expired" : formatDuration(timeLeftSeconds);
+  };
+
+  const handleStop = async (row: userInfo) => {
+    const key = `${row.name}-${row.con_name}`;
+    setLoadingKeys((prev) => ({ ...prev, [key]: true }));
+    try {
+      const response = await fetch(`/api/stop_container/${row.con_id}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+        },
+      });
+      if (response.ok) {
+        await poll();
+      } else {
+        console.error("Stop failed", await response.json());
+      }
+    } catch (err) {
+      console.error("Stop error", err);
+    } finally {
+      setLoadingKeys((prev) => ({ ...prev, [key]: false }));
+    }
+  };
+
   const grouped = groupByUser(data);
 
   return (
     <>
       <div>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginBottom: 12,
-          }}
-        ></div>
-
         {error && <p style={{ color: "red", fontSize: 13 }}>{error}</p>}
-
         <Table bordered hover>
           <thead>
             <tr>
@@ -170,24 +233,40 @@ function UserTables() {
                     </tr>
 
                     {isOpen &&
-                      rows.map((row) => (
-                        <tr
-                          key={`${row.name}-${row.con_name}`}
-                          style={{ background: "#ffffff" }}
-                        >
-                          <td style={{ paddingLeft: 32, color: "#888780" }}>
-                            {initials(row.name)}
-                          </td>
-                          <td>{row.con_name}</td>
-                          <td>{row.con_status}</td>
-                          <td>{formatTime(row.time_rem)}</td>
-                          <td>
-                            <Button size="sm" variant="outline-secondary">
-                              {row.con_status === "RUN" ? "Stop" : "Start"}
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
+                      rows.map((row) => {
+                        const key = `${row.name}-${row.con_name}`;
+                        const isLoading = !!loadingKeys[key];
+                        return (
+                          <tr key={key} style={{ background: "#ffffff" }}>
+                            <td style={{ paddingLeft: 32, color: "#888780" }}>
+                              {initials(row.name)}
+                            </td>
+                            <td>{row.con_name}</td>
+                            <td>{row.con_status}</td>
+                            <td>{getTimeLeft(row)}</td>
+                            <td>
+                              {row.con_status === "RUN" ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline-danger"
+                                  disabled={isLoading}
+                                  onClick={() => handleStop(row)}
+                                >
+                                  {isLoading ? "Stopping..." : "Stop"}
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline-secondary"
+                                  disabled
+                                >
+                                  Stopped
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                   </>
                 );
               })

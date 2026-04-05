@@ -6,7 +6,7 @@ function DashboardContent() {
   const [username, setUsername] = useState<string>("");
   const [containers, setContainers] = useState<any[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [orgCode] = useState("");
+  const [orgCode, setOrgCode] = useState("");
 
   const formatDuration = (totalSeconds: number) => {
     const clamped = Math.max(0, Math.floor(totalSeconds));
@@ -86,7 +86,9 @@ function DashboardContent() {
         {/*//TODO: Implement group code joining /** */}
         <Form onSubmit={joinOrg}>
           <InputGroup>
-            <Form.Control></Form.Control>
+            <Form.Control
+              onChange={(e) => setOrgCode(e.target.value)}
+            ></Form.Control>
           </InputGroup>
         </Form>
         <Container
@@ -120,6 +122,9 @@ function DashboardContent() {
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "PyGoat")?.status ??
+                      "idle",
                   },
                   {
                     name: "Juice Shop",
@@ -127,6 +132,9 @@ function DashboardContent() {
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "Juice Shop")?.status ??
+                      "idle",
                   },
                   {
                     name: "Grafana",
@@ -134,6 +142,9 @@ function DashboardContent() {
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "Grafana")?.status ??
+                      "idle",
                   },
                   {
                     name: "Damn Vulnerable Web App",
@@ -141,6 +152,10 @@ function DashboardContent() {
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
+                    runningContainers:
+                      containers.find(
+                        (c) => c.name === "Damn Vulnerable Web App",
+                      )?.status ?? "idle",
                   },
                 ]}
               />
