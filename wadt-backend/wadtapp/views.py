@@ -4,6 +4,7 @@ import urllib.error
 import socket
 import docker 
 import time
+import uuid
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
 from django.shortcuts import get_object_or_404, render
@@ -18,7 +19,6 @@ from django.utils.dateparse import parse_datetime
 from django.core.paginator import Paginator
 from datetime import timedelta
 from decouple import config
-
 from .models import Container, Organization, UserProfile, ActionLog
 
 # Seconds to wait when checking if container HTTP service is up
@@ -40,7 +40,6 @@ ALLOWED_VULN_IMAGES = [
 ]
 
 def get_secure_container_config(user_id_str, container_name):
-    from decouple import config
     app_domain = config("APP_DOMAIN", default="localhost")
     return {
         "detach": True, 
@@ -284,7 +283,6 @@ def start_container(request):
              return JsonResponse({"error": "Quota exceeded."}, status=429)
 
         client.images.pull(image_name)
-        import uuid
         unique_id = str(uuid.uuid4())[:6] #generates the url-safe container name
         explicit_name = f"wadt-user{request.user.id}-{unique_id}"
         config = get_secure_container_config(user_id_str, explicit_name)
@@ -456,7 +454,6 @@ def approve_teacher(request, target_user_id):
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
-        from django.contrib.auth.models import User
         target_user = User.objects.get(id=target_user_id)
         target_profile = target_user.profile
 
