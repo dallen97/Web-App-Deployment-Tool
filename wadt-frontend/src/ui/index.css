@@ -22,4 +22,16 @@ font-family: monospace;
 opacity: 1;
 }
 
+/* Search bar on logs page*/
+.log-search::placeholder {
+    color: rgba(255, 255, 255, 0.3);
+}
+
+.log-search:focus {
+    background-color: transparent;
+    color: var(--bs-body-color);
+    border-color: var(--bs-primary);
+    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
+}
+
 

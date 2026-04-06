@@ -6,6 +6,7 @@ import Button from "react-bootstrap/Button";
 export interface HeaderButton {
   link: string;
   text: string;
+  isText?: boolean; // for putting text in header that does not look like the clickable stuff
 }
 
 export interface HeaderProps {
@@ -42,7 +43,7 @@ const Header = ({
     <div data-bs-theme="dark">
       <nav className="navbar navbar-expand-lg navbar-dark bg-dark">
         <ul
-          className={"nav w-100 d-flex align-items-center container-fluid ${alignClass}"}
+          className={`nav w-100 d-flex align-items-center container-fluid ${alignClass}`}
         >
           {wadtEnabled && (
             <>
@@ -58,12 +59,17 @@ const Header = ({
               </OffCanvas>
             </>
           )}
-
+          <ul className={`nav ms-auto d-flex align-items-center`}></ul>
           {buttons.map((btn, index) => (
             <li key={index} className="nav-item">
+              {/* Check for text in header and make it look different*/}
+              {btn.isText ? (
+                  <span className="nav-link" style = {{color:"var(--bs-secondary-color)"}}>{btn.text}</span>
+              ) : (
               <a className="nav-link" href={btn.link}>
                 {btn.text}
               </a>
+              )}
             </li>
           ))}
         </ul>
