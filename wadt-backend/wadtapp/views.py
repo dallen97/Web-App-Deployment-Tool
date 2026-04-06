@@ -19,7 +19,6 @@ from django.utils.dateparse import parse_datetime
 from django.core.paginator import Paginator
 from datetime import timedelta
 from decouple import config
-
 from .models import Container, Organization, UserProfile, ActionLog
 
 # Seconds to wait when checking if container HTTP service is up
@@ -41,7 +40,6 @@ ALLOWED_VULN_IMAGES = [
 ]
 
 def get_secure_container_config(user_id_str, container_name):
-    from decouple import config
     app_domain = config("APP_DOMAIN", default="localhost")
     return {
         "detach": True, 
@@ -456,7 +454,6 @@ def approve_teacher(request, target_user_id):
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
-        from django.contrib.auth.models import User
         target_user = User.objects.get(id=target_user_id)
         target_profile = target_user.profile
 
