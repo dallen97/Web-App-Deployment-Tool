@@ -39,7 +39,7 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-MAX_CONTAINERS = 10
+MAX_CONTAINERS = 4
 CONTAINER_MEM_LIMIT = "512m"
 CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
@@ -247,34 +247,14 @@ def get_containers(request):
             # Construct the readable URL directly from the project name
             app_domain = config("APP_DOMAIN", default="localhost")
             protocol = "http" if app_domain == "localhost" else "https"
-
-            # 2. State Machine Logic
-            is_ready = True
-            if db_c.status == "STARTING":
-                # Quick probe to see if it finished starting while we weren't looking
-                if _probe_traefik_host(f"{project_name}.{app_domain}") and _probe_traefik_host(f"terminal.{project_name}.{app_domain}"):
-                    db_c.status = "RUN"
-                    db_c.save()
-                else:
-                    is_ready = False
-
-            # 3. Withhold URLs if not ready
-            if is_ready:
-                external_url = f"{protocol}://{project_name}.{app_domain}"
-                terminal_url = f"{protocol}://terminal.{project_name}.{app_domain}"
-                frontend_status = "running"
-            else:
-                external_url = None
-                terminal_url = None
-                frontend_status = "starting"
+            external_url = f"{protocol}://{project_name}.{app_domain}"
 
             container_data.append({
-                "id": project_name,
-                "name": db_c.name,
+                "id": project_name, # Send project name so Stop/Restart button works
+                "name": db_c.name,  # The pretty name (e.g., "PyGoat")
                 "image": image_tag,
-                "status": frontend_status, # Let React know it's starting
-                "external_url": external_url,
-                "terminal_url": terminal_url,
+                "status": c.status,
+                "external_url": external_url, 
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
@@ -385,7 +365,7 @@ def start_container(request):
         os.system(f"docker network connect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
 
         # 7. Update Database
-        db_container.status = "STARTING"
+        db_container.status = "RUN"
         db_container.save()
         log_user_action(request.user, f"Deployed composed project '{db_container.name}'", db_container)
 
@@ -487,7 +467,7 @@ def restart_container(request, container_id):
         else:
             return JsonResponse({"error": "YAML configuration missing. Cannot restart."}, status=404)
 
-        db_container.status = "STARTING"
+        db_container.status = "RUN"
         db_container.save()
         log_user_action(request.user, f"Restarted composed project '{db_container.name}'", db_container)
 
@@ -705,12 +685,10 @@ def leave_organization(request):
 @require_http_methods(["GET"])
 @login_required
 def get_container_logs(request, container_id):
-    # container_id is now the Compose Project Name
     container_record = get_object_or_404(Container, docker_container_id=container_id)
-    
-    # ... (Keep all your existing authorization checks here) ...
     user_profile = getattr(request.user, 'profile', None)
     user_role = user_profile.role if user_profile else 'STUDENT'
+
     is_authorized = False
     if user_role == 'SUPER':
         is_authorized = True 
@@ -724,7 +702,6 @@ def get_container_logs(request, container_id):
 
     unified_logs = []
 
-    # 1. Fetch System/Action Logs
     action_logs = ActionLog.objects.filter(container=container_record).order_by('-timestamp')[:50]
     for alog in action_logs:
         unified_logs.append({
@@ -736,39 +713,28 @@ def get_container_logs(request, container_id):
     client = get_docker_client()
     if client:
         try:
-            # 2. Fetch Web App Logs
-            try:
-                web_container = client.containers.get(f"{container_id}-web-1")
-                raw_logs = web_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
-                
-                noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or any(noise in line for noise in noise_filters): continue
-                    parts = line.split(' ', 1)
-                    if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "APP", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass # Container might be dead, that's fine
+            docker_container = client.containers.get(container_id)
+            raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
+            log_lines = raw_logs.decode('utf-8').split('\n')
 
-            # 3. Fetch Terminal Logs
-            try:
-                term_container = client.containers.get(f"{container_id}-attacker-1")
-                raw_logs = term_container.logs(stdout=True, stderr=True, timestamps=True, tail=50)
-                
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or "ttyd" in line: continue # Filter out ttyd noise
-                    parts = line.split(' ', 1)
-                    if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "TERMINAL", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass
+            noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
 
+            for line in log_lines:
+                if not line.strip(): continue
+                if any(noise in line for noise in noise_filters): continue
+
+                parts = line.split(' ', 1)
+                if len(parts) == 2:
+                    unified_logs.append({
+                        "timestamp": parts[0], 
+                        "source": "CONTAINER",
+                        "message": parts[1]    
+                    })
         except Exception as e:
             print(f"Docker log error: {e}")
         finally:
             client.close()
 
-    # Sort everything by timestamp so it flows perfectly chronologically
     unified_logs.sort(key=lambda x: x['timestamp'])
 
     return JsonResponse({"status": "success", "logs": unified_logs})
@@ -842,6 +808,7 @@ def get_all_containers_admin(request):
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):
+    # container_id is the Compose Project Name (e.g., wadt-user1-grafana-123456)
     try:
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
     except Container.DoesNotExist:
@@ -849,15 +816,13 @@ def check_container_ready(request, container_id):
 
     app_domain = config("APP_DOMAIN", default="localhost")
     hostname = f"{container_id}.{app_domain}"
-    terminal_hostname = f"terminal.{hostname}" # Define the terminal hostname
 
-    # 1. The Traefik Probes
-    # Check BOTH the main app and the terminal
-    app_is_ready = _probe_traefik_host(hostname)
-    terminal_is_ready = _probe_traefik_host(terminal_hostname)
+    # 1. The Traefik Probe
+    # This hits Traefik internally. It returns True if the app is returning 2xx, 3xx, or 4xx.
+    # It returns False if Traefik is still throwing 502 Bad Gateway.
+    is_ready = _probe_traefik_host(hostname)
 
-    # If EITHER of them is still throwing a 502 Bad Gateway, keep spinning!
-    if not (app_is_ready and terminal_is_ready):
+    if not is_ready:
         return JsonResponse({"ready": False})
 
     # 2. Determine the specific landing page for the "Open App" button
@@ -867,18 +832,13 @@ def check_container_ready(request, container_id):
             app_path = info.get("path", "/")
             break
 
-    # 3. Construct the final exact URLs
+    # 3. Construct the final exact URL
     protocol = "http" if app_domain == "localhost" else "https"
     final_url = f"{protocol}://{hostname}{app_path}"
-    terminal_url = f"{protocol}://{terminal_hostname}" 
-
-    db_container.status = "RUN"
-    db_container.save()
 
     return JsonResponse({
         "ready": True,
-        "url": final_url,
-        "terminal_url": terminal_url
+        "url": final_url
     })
 
 def log_user_action(user, action_message, container=None):
