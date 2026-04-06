@@ -99,32 +99,47 @@ function DashboardContent() {
             docker={[
               {
                 name: "PyGoat",
-                imageName: "pygoat/pygoat",
+                appKey: "pygoat",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Juice Shop",
-                imageName: "bkimminich/juice-shop",
+                appKey: "juice-shop",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Grafana",
-                imageName: "grafana/grafana:8.3.0",
+                appKey: "grafana",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Damn Vulnerable Web App",
-                imageName: "vulnerables/web-dvwa",
+                appKey: "dvwa",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
+              {
+                name: "Apache Struts",
+                appKey: "apache-struts",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              },
+              {
+                name: "Shellshock",
+                appKey: "shellshock",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              },
+              {
+                name: "Tiredful API",
+                appKey: "tiredful-api",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              }
             ]}
           />
             </Col>
