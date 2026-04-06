@@ -1,84 +1,467 @@
 import ContainerDropdown from "../components/ContainerDropdown";
-import {Card} from 'react-bootstrap';
-import {useState, useEffect} from 'react';
-
+import { Card, Button, Spinner, Badge, ListGroup } from "react-bootstrap";
+import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 /* TODO: 
-    Make cards
-    
+    Clear logs button -> make it actually do something
+    Make look better
+    Search bar
+    add button for redirect back to dashboard from log page
+    Try to test errors
+    Redirect back to dashboard button
     */
 // track running containers
-interface ContainerInfo 
-{
-    id: string;
-    name: string;
+interface ContainerInfo {
+  id: string;
+  name: string;
+  url: string | null;
 }
 
-function LogPage(){
+function LogPage() {
+  // states
+  const [runningContainers, setRunningContainers] = useState<ContainerInfo[]>(
+    [],
+  );
+  const [currentContainer, setCurrentContainer] =
+    useState<ContainerInfo | null>(null);
+  const [logs, setLogs] = useState<
+    { timestamp: string; source: string; message: string }[]
+  >([]); // log messages
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [activeFilter, setActiveFilter] = useState<string>("ALL"); // Filter for logs
+  const [searchQuery, setSearchQuery] = useState<string>(""); // Search bar query
 
-    // states
-    const [runningContainers, setRunningContainers] = useState<ContainerInfo[]>([]);
-    const [currentContainer, setCurrentContainer] = useState<ContainerInfo | null>(null);
-    const [logs, setLogs] = useState<{timestamp: string; message: string}[]> ([]);
+  const { id: selectedContainerId } = useParams(); // Track selected container from dashboard
+  const navigate = useNavigate();
 
-    // Get list of running containers when opening page
-    useEffect(() => {
-        fetch("wadtapp/get_containers/", { credentials: "include" })
-        .then(res => res.json())
-        .then(data => {
-            const containers = data.map((c: ContainerInfo) => ({
-            id: c.id,
-            name: c.name,}));
-            setRunningContainers(containers);
-            setCurrentContainer(containers[0] ?? null);
+  // Dashboard manages multiple contaners, just need to manage 1 at a time for logs
+  // Adjusted code from dashboard for single container
+  function getCookie(name: string) {
+    let cookieValue = null;
+    if (document.cookie && document.cookie !== "") {
+      const cookies = document.cookie.split(";");
+      for (let i = 0; i < cookies.length; i++) {
+        const cookie = cookies[i].trim();
+        if (cookie.substring(0, name.length + 1) === name + "=") {
+          cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+          break;
+        }
+      }
+    }
+    return cookieValue;
+  }
+
+  // Call API for stopping container
+  const handleStop = async () => {
+    if (!currentContainer) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(
+        `/api/stop_container/${currentContainer.id}/`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+          },
+        },
+      );
+      if (response.ok) {
+        // Update action buttons when container stopped
+        setCurrentContainer(null);
+        setLogs((prev) => [
+          ...prev,
+          {
+            timestamp: new Date().toISOString(),
+            source: "SYSTEM",
+            message: `Container ${currentContainer.name} was stopped.`,
+          },
+        ]);
+        setCurrentContainer(null);
+        window.dispatchEvent(new Event("wadt:containers-changed"));
+      } else console.error("Failed to stop container");
+    } catch (err) {
+      console.error("Error stopping container:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Call api for reset container
+  const handleReset = async () => {
+    if (!currentContainer) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(
+        `/api/reset_container/${currentContainer.id}/`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+          },
+        },
+      );
+      const data = await response.json();
+      if (response.ok) {
+        // Update currentContainer with the new id (might not be needed)
+        setCurrentContainer((prev) =>
+          prev ? { ...prev, id: data.new_id } : null,
+        );
+        window.dispatchEvent(new Event("wadt:containers-changed")); //update dashboard
+      } else console.error("Failed to reset container:", data.error);
+    } catch (err) {
+      console.error("Error resetting container:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Call API for restarting container
+  const handleRestart = async () => {
+    if (!currentContainer) return;
+    setIsLoading(true);
+    try {
+      const response = await fetch(
+        `/api/restart_container/${currentContainer.id}/`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+          },
+        },
+      );
+      if (response.ok)
+        window.dispatchEvent(new Event("wadt:containers-changed")); //update dashboard
+      else console.error("Failed to restart container");
+    } catch (err) {
+      console.error("Error restarting container:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Default to chosen container from dashboard
+  useEffect(() => {
+    if (!selectedContainerId || runningContainers.length === 0) return;
+
+    const selected = runningContainers.find(
+      (c) => c.id === selectedContainerId,
+    );
+    if (selected) setCurrentContainer(selected);
+  }, [selectedContainerId, runningContainers]);
+
+  // Get list of running containers when opening page
+  useEffect(() => {
+    const refresh = () => {
+      fetch("/api/get_containers/", { credentials: "include" })
+        .then((res) => res.json())
+        .then((data) => {
+          //  Get name and ide of only running containers
+          const containers = data
+            .filter((c: any) => c.status === "running")
+            .map((c: any) => ({
+              id: c.id,
+              name: c.name,
+              image: c.image,
+              url: c.external_url ?? null,
+            }));
+          // update list of running containers
+          setRunningContainers(containers);
+          // Default if not redirecting from dashboard page link
+          if (!selectedContainerId) setCurrentContainer(containers[0] ?? null);
         })
-        .catch(err => console.error("Failed to fetch containers:", err));
-    }, []);
+        .catch((err) => console.error("Failed to fetch containers:", err));
+    };
+    refresh();
+    window.addEventListener("wadt:containers-changed", refresh); // sync log page with dashboard
+    return () => window.removeEventListener("wadt:containers-changed", refresh); // stop memory leak
+  }, []);
 
-    // update logs when current container changes
-    useEffect(() => {
-        if (!currentContainer) // no containers running
-            return;
-        // containers are running
-        fetch('api/get_container_logs/${currentContainer.id}/', {credentials: "include"})
-            .then(res => res.json())
-            .then(data => setLogs(data.logs))
-            .catch(err => console.error("Failed to fetch containers:", err));
+  // Log filtering
+  const filteredLogs = (
+    activeFilter === "ALL"
+      ? logs
+      : logs.filter((log) => log.source === activeFilter)
+  )
+    .filter(
+      (log) =>
+        searchQuery === "" ||
+        log.message.toLowerCase().includes(searchQuery.toLowerCase()),
+    )
+    .slice()
+    .reverse();
+
+  // update logs when current container changes
+  useEffect(() => {
+    if (!currentContainer) return;
+
+    // fetch logs immediately when container is selected
+    const fetchLogs = () => {
+      fetch(`/api/get_container_logs/${currentContainer.id}/`, {
+        credentials: "include",
+      })
+        .then((res) => res.json())
+        .then((data) =>
+          setLogs(
+            (data.logs ?? [])
+              .filter((log: any) => log.message.trim() !== "") // Hide empty logs
+              .filter((log: any) => !log.message.includes("was stopped.")) // remove duplicate stopped message
+              // Apply filter for finding errors in logs
+              .map((log: any) => ({
+                ...log,
+                source:
+                  log.message.toLowerCase().includes("error") ||
+                  log.message.toLowerCase().includes("exception") ||
+                  log.message.toLowerCase().includes("fatal")
+                    ? "ERROR"
+                    : log.source,
+              })),
+          ),
+        );
+    };
+
+    fetchLogs();
+    const intervalId = setInterval(fetchLogs, 5000); // update every 5 seconds
+
+    return () => clearInterval(intervalId); // stop  when container changes
   }, [currentContainer]);
 
-    return (
-    // Top card with Title and dropdown button*
+  return (
+    // Header card
     <>
-    <Card>
+      <Card className="container_card">
         <Card.Body
-            style = {{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-            }}>
-            {/* Page title*/}
-            <Card.Title 
-                style = {{
-                fontSize: "3rem"
-                }}>
-                Container Logs
-            </Card.Title>
-            {/*Dropdown button*/}
-            <ContainerDropdown 
-                runningContainers = {runningContainers.map(c => c.name)}
-                currentContainer = {currentContainer?.name ?? null}
-                setCurrentContainer = {(name) => {
-                    const findContainer = runningContainers.find(c => c.name === name) ?? null;
-                    setCurrentContainer(findContainer)}}/>
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            position: "relative",
+          }}
+        >
+          {/* Back to dashboard button */}
+          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
+            <Button
+              variant="outline-secondary"
+              style={{ position: "absolute", left: "2vw" }}
+              onClick={() => navigate("/dashboard")}
+            >
+              Back to Dashboard
+            </Button>
+            {/* Page title */}
+            <Card.Title style={{ fontSize: "3rem" }}>Container Logs</Card.Title>
+          </div>
+          {/*Dropdown button*/}
+          <div style={{ position: "absolute", right: "2vw" }}>
+            <ContainerDropdown
+              runningContainers={runningContainers.map((c) => c.name)}
+              currentContainer={currentContainer?.name ?? null}
+              setCurrentContainer={(name) => {
+                const findContainer =
+                  runningContainers.find((c) => c.name === name) ?? null;
+                setCurrentContainer(findContainer);
+              }}
+            />
+          </div>
         </Card.Body>
-    </Card>
-    {/* Second Card with Start, Stop, Restart, Reset and Clear logs -> just adjust first card component*/}
-            
-    {/* Thrid Card with search bar*/}
+      </Card>
+      {/* Second card with stop, restart, reset and clear logs buttons */}
+      <Card className="mt-2">
+        <Card.Body
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          {!currentContainer ? (
+            <span style={{ color: "secondary", fontStyle: "italic" }}>
+              Select a container to see actions
+            </span>
+          ) : (
+            <div style={{ display: "flex", gap: "10px" }}>
+              {/* Loading spinner */}
+              {isLoading && (
+                <Button variant="primary" disabled>
+                  <Spinner
+                    as="span"
+                    animation="border"
+                    size="sm"
+                    role="status"
+                    aria-hidden="true"
+                  />
+                  <span className="visually-hidden">Loading...</span>
+                </Button>
+              )}
+              {/* Stop, Reset, Restart buttons */}
+              <div style={{ display: "flex", gap: "10px" }}>
+                <Button
+                  variant="danger"
+                  disabled={isLoading}
+                  onClick={handleStop}
+                >
+                  Stop
+                </Button>
+                <Button
+                  variant="info"
+                  disabled={isLoading}
+                  onClick={handleReset}
+                >
+                  Reset
+                </Button>
+                <Button
+                  variant="warning"
+                  disabled={isLoading}
+                  onClick={handleRestart}
+                >
+                  Restart
+                </Button>
+              </div>
+            </div>
+          )}
+          {/* Open app buttons when restart chosen*/}
+          <div style={{ display: "flex", gap: "10px" }}>
+            {currentContainer?.url && (
+              <Button
+                variant="success"
+                onClick={() => window.open(currentContainer.url!, "_blank")}
+              >
+                Open App
+              </Button>
+            )}
+            <Button variant="outline-secondary">Clear Logs</Button>
+          </div>
+        </Card.Body>
+      </Card>
 
-    {/*Fourth Card with Filter for types of logs*/}
+      {/* Thrid Card with filters and  search bar*/}
+      <Card className="mt-2">
+        <Card.Body
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          {/* Filter buttons */}
+          <div style={{ display: "flex", gap: "10px" }}>
+            {["ALL", "SYSTEM", "CONTAINER", "ERROR"].map((filter) => (
+              <Button
+                key={filter}
+                variant={
+                  activeFilter === filter ? "primary" : "outline-secondary"
+                }
+                onClick={() => setActiveFilter(filter)}
+              >
+                {filter === "ALL"
+                  ? "All Logs"
+                  : filter.charAt(0) + filter.slice(1).toLowerCase()}
+              </Button>
+            ))}
+          </div>
+          {/* Search bar */}
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              flex: 1,
+              maxWidth: "700px",
+              marginLeft: "20px",
+            }}
+          >
+            <Button
+              variant="outline-secondary"
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <input
+                type="text"
+                placeholder="Search logs"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  flex: 1,
+                  color: "var(--bs-secondary-color)",
+                }}
+              />
+            </Button>
 
-    {/* Fifth Card The actual logs */}
+            {/* Clear search button */}
+            <Button
+              variant="outline-secondary"
+              onClick={() => setSearchQuery("")}
+            >
+              Clear Search
+            </Button>
+          </div>
+        </Card.Body>
+      </Card>
+
+      {/* Fourth Card, the actual logs */}
+      <Card className="mt-2">
+        <Card.Body>
+          {filteredLogs.length === 0 ? (
+            <span
+              style={{
+                color: "var(--bs-secondary-color)",
+                fontStyle: "italic",
+              }}
+            >
+              No logs to display
+            </span>
+          ) : (
+            <ListGroup>
+              {filteredLogs.map((log, i) => (
+                <ListGroup.Item
+                  key={i}
+                  variant={log.source === "ERROR" ? "danger" : undefined}
+                >
+                  {/* Badges and timestamp */}
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      marginBottom: "5px",
+                    }}
+                  >
+                    <Badge
+                      bg={
+                        log.source === "SYSTEM"
+                          ? "primary"
+                          : log.source === "CONTAINER"
+                            ? "success"
+                            : log.source === "ERROR"
+                              ? "danger"
+                              : "secondary"
+                      }
+                    >
+                      {log.source}
+                    </Badge>
+                    <span style={{ color: "gray", fontSize: "0.85rem" }}>
+                      {new Date(log.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  {/* Log message */}
+                  <div style={{ fontSize: "0.9rem" }}>{log.message}</div>
+                </ListGroup.Item>
+              ))}
+            </ListGroup>
+          )}
+        </Card.Body>
+      </Card>
     </>
-    );
+  );
 }
 export default LogPage;

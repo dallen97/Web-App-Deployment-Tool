@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import { Container, Row, Col, Button, Table } from "react-bootstrap";
-import DashboardPage from "../pages/DashboardPage";
+import {
+  Container,
+  Row,
+  Col,
+  Button,
+  DropdownButton,
+  Dropdown,
+} from "react-bootstrap";
 
 export interface DockerProps {
   name: string;
@@ -92,26 +98,6 @@ const Docker = ({ docker = [] }: DockerList) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ITEM: useEffect case for watching if containers are still running after admin shuts them down
-  useEffect(() => {
-    docker.forEach((d) => {
-      setContainerStatus((prev) => {
-        if (
-          d.runningContainers !== "running" &&
-          (prev[d.name] === "ready" || prev[d.name] === "loading")
-        ) {
-          setContainerUrls((prevUrls) => {
-            const updated = { ...prevUrls };
-            delete updated[d.name];
-            return updated;
-          });
-          return { ...prev, [d.name]: "idle" };
-        }
-        return prev;
-      });
-    });
-  }, [docker]);
-
   // 1. Start Container
   const handleStart = async (imageName: string, containerName: string) => {
     // Immediately show spinner
@@ -146,7 +132,7 @@ const Docker = ({ docker = [] }: DockerList) => {
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
       }
     } catch (error) {
-      console.error("Error: ", error);
+      console.error("Error:", error);
       setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
     }
   };
@@ -222,6 +208,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
       if (response.ok) {
         console.log(containerName, "container stopped.");
+        window.dispatchEvent(new Event("wadt:containers-changed"));
         // Reset start button state
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
         setContainerUrls((prev) => {
@@ -267,16 +254,35 @@ const Docker = ({ docker = [] }: DockerList) => {
     }
   };
 
+  // 6. Reset container
+  const handleReset = async (containerId: string) => {
+    try {
+      const response = await fetch(`/api/reset_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+        },
+      });
+      const data = await response.json();
+      if (response.ok)
+        window.dispatchEvent(new Event("wadt:containers-changed"));
+      else console.error("Failed to reset container:", data.error);
+    } catch (err) {
+      console.error("Error resetting container:", err);
+    }
+  };
+
   return (
     <>
       <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)" }}>
         {docker.map((d, i) => (
           <div key={i} style={{ marginTop: "35px" }}>
-            <Table></Table>
             <Container className="mb-3">
               <Row className="align-items-center">
-                <Col>
-                  <strong>{d.name} container</strong>
+                <Col md={3}>
+                  <strong>{d.name}</strong>
                 </Col>
 
                 <Col className="text-end">
@@ -286,7 +292,8 @@ const Docker = ({ docker = [] }: DockerList) => {
                     <Button
                       variant="primary"
                       onClick={() => handleStart(d.imageName, d.name)}
-                      style={{ marginLeft: "0px" }}
+                      style={{ marginLeft: "10px" }}
+                      size="sm"
                     >
                       Start
                     </Button>
@@ -297,6 +304,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                       variant="primary"
                       disabled
                       style={{ marginLeft: "10px" }}
+                      size="sm"
                     >
                       <Spinner
                         as="span"
@@ -314,11 +322,46 @@ const Docker = ({ docker = [] }: DockerList) => {
                       variant="success"
                       onClick={() => handleView(d.name)}
                       style={{ marginLeft: "10px" }}
+                      size="sm"
                     >
                       Open App
                     </Button>
                   )}
-                  {/* Stop Container*/}
+
+                  {/* 4. Stop, Restart, Reset dropwdown when running- Just an idea for fitting restart */}
+                  {(containerStatus[d.name] === "loading" ||
+                    containerStatus[d.name] === "ready") && (
+                    <>
+                      <Button
+                        variant="danger"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleStop(d.name)}
+                        size="sm"
+                      >
+                        Stop
+                      </Button>
+                      <Button
+                        variant="warning"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleRestart(d.name)}
+                        size="sm"
+                      >
+                        Restart
+                      </Button>
+                      <Button
+                        variant="info"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleReset(containerIds[d.name])}
+                        size="sm"
+                      >
+                        Reset
+                      </Button>
+                    </>
+                  )}
+
+                  {/* TEMP COMMENT OUT OLD BUTTONS FOR TESTING
+                  *---------------------------------------------------------------
+                  /* Stop Container
                   <Button
                     variant="danger"
                     onClick={() => handleStop(d.name)}
@@ -326,7 +369,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                   >
                     Stop
                   </Button>
-                  {/*Restart Contaienr*/}
+                  /*Restart Contaienr
                   <Button
                     variant="warning"
                     onClick={() => handleRestart(d.name)}
@@ -334,6 +377,14 @@ const Docker = ({ docker = [] }: DockerList) => {
                   >
                     Restart
                   </Button>
+                  /* Reset Container 
+                  <Button
+                    variant="info"
+                    onClick={() => handleReset(containerIds[d.name])}
+                    style={{ marginLeft: "10px" }}>
+                    Reset
+                  </Button> 
+                  ------------------------------------------------------------------*/}
                 </Col>
               </Row>
             </Container>

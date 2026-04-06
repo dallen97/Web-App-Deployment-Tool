@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Form, Container, InputGroup } from "react-bootstrap";
 import UserTables from "../components/userTables";
+import Cards from "../components/Card";
 
 const fontStyle: React.CSSProperties = {
   fontFamily: "monospace",
@@ -24,7 +25,7 @@ function AdminPage() {
     const createGroup = async (e: React.FormEvent) => {
       e.preventDefault(); // Prevents form submission upon reloading the page
       try {
-        const response = await fetch("api/create_organization/", {
+        const response = await fetch("/api/create_organization/", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -79,14 +80,35 @@ function AdminPage() {
             <Container className="text-center" style={{ maxWidth: "1000px" }}>
               <h1>Welcome Admin</h1>
               <Container>
-                <span style={fontStyle}>
-                  Number of Members: {numMembers} |{" "}
-                </span>
-                <span style={fontStyle}>
-                  Number of Containers: {numContainers} |{" "}
-                </span>
-                <span style={fontStyle}>Group Name: {groupName} | </span>
-                <span style={fontStyle}>Group Code: {groupCode} | </span>
+                <div
+                  className="d-flex justify-content-center align-center"
+                  style={{ marginTop: "20px", marginBottom: "100px" }}
+                >
+                  <Cards
+                    header="Number of Members"
+                    cardWidth="15rem"
+                    cardHeight="35px"
+                    text="0"
+                  />
+                  <Cards
+                    header="Number of Containers"
+                    cardWidth="15rem"
+                    cardHeight="35px"
+                    text="0"
+                  />
+                  <Cards
+                    header="Group Name"
+                    cardWidth="15rem"
+                    cardHeight="35px"
+                    text={groupName}
+                  />
+                  <Cards
+                    header="Group Code"
+                    cardWidth="15rem"
+                    cardHeight="35px"
+                    text={groupCode}
+                  />
+                </div>
               </Container>
               <UserTables />
             </Container>

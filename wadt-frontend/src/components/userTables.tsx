@@ -53,7 +53,6 @@ function UserTables() {
   const [data, setData] = useState<userInfo[]>([]);
   const [extended, setExtended] = useState<Record<string, boolean>>({});
   const [isPolling, setIsPolling] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({});
 
@@ -103,9 +102,8 @@ function UserTables() {
       });
 
       setData(organized);
-      setError(null);
     } catch {
-      setError("Failed to fetch container data.");
+      console.log("Failed to fetch Container Data");
     }
   }, []);
 
@@ -177,18 +175,57 @@ function UserTables() {
   return (
     <>
       <div>
-        {error && <p style={{ color: "red", fontSize: 13 }}>{error}</p>}
         <Table bordered hover>
           <thead>
             <tr>
-              <th>User</th>
-              <th>Container</th>
-              <th>Status</th>
-              <th>Time Remaining</th>
-              <th>Actions</th>
+              <th
+                className="small_text"
+                style={{
+                  backgroundColor: "#001124",
+                  color: "rgb(255, 255, 255)",
+                }}
+              >
+                User
+              </th>
+              <th
+                className="small_text"
+                style={{
+                  backgroundColor: "#001124",
+                  color: "rgb(255, 255, 255)",
+                }}
+              >
+                Container
+              </th>
+              <th
+                className="small_text"
+                style={{
+                  backgroundColor: "#001124",
+                  color: "rgb(255, 255, 255)",
+                }}
+              >
+                Status
+              </th>
+              <th
+                className="small_text"
+                style={{
+                  backgroundColor: "#001124",
+                  color: "rgb(255, 255, 255)",
+                }}
+              >
+                Time Remaining
+              </th>
+              <th
+                className="small_text"
+                style={{
+                  backgroundColor: "#001124",
+                  color: "rgb(255, 255, 255)",
+                }}
+              >
+                Actions
+              </th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="table-body">
             {data.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ textAlign: "center" }}>
@@ -206,7 +243,7 @@ function UserTables() {
                     <tr
                       key={username}
                       onClick={() => toggleUser(username)}
-                      style={{ cursor: "pointer", background: "#f8f8f7" }}
+                      style={{ cursor: "pointer", background: "#00637c" }}
                     >
                       <td>
                         <span
@@ -237,7 +274,12 @@ function UserTables() {
                         const key = `${row.name}-${row.con_name}`;
                         const isLoading = !!loadingKeys[key];
                         return (
-                          <tr key={key} style={{ background: "#ffffff" }}>
+                          <tr
+                            key={key}
+                            style={{
+                              background: "#023578",
+                            }}
+                          >
                             <td style={{ paddingLeft: 32, color: "#888780" }}>
                               {initials(row.name)}
                             </td>

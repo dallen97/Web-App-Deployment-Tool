@@ -1,12 +1,20 @@
 import { useState, useEffect } from "react";
 import Docker from "../components/Docker";
-import { Container, Row, Col, Form, InputGroup } from "react-bootstrap";
+import Footer from "../components/Footer";
+import Header from "../components/Header";
+import { Container, Row, Col, Button } from "react-bootstrap";
+import { Link } from "react-router-dom";
+
+/*
+  Things to add:
+  - Footer
+  - Sidebar
+*/
 
 function DashboardContent() {
   const [username, setUsername] = useState<string>("");
   const [containers, setContainers] = useState<any[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
-  const [orgCode, setOrgCode] = useState("");
 
   const formatDuration = (totalSeconds: number) => {
     const clamped = Math.max(0, Math.floor(totalSeconds));
@@ -62,53 +70,41 @@ function DashboardContent() {
     return () => clearInterval(interval);
   }, []);
 
-  const joinOrg = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const response = await fetch("/api/join_organization/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        org_code: orgCode,
-      }),
-    });
-    if (response.ok) {
-      console.log("JOINED ORG");
-    } else {
-      console.log("ERROR JOINING ORG");
-    }
-  };
-
   return (
     <div className="d-flex flex-column min-vh-100">
+      <Header
+        buttons={[
+          { link: "#", text: `Welcome, ${username}`, isText: true },
+          { link: "/login/", text: "Logout" },
+        ]}
+        align="left"
+      />
       <main className="flex-grow-1">
-        {/*//TODO: Implement group code joining /** */}
-        <Form onSubmit={joinOrg}>
+        {/* <Form onSubmit={joinOrg}>
           <InputGroup>
             <Form.Control
               onChange={(e) => setOrgCode(e.target.value)}
             ></Form.Control>
           </InputGroup>
-        </Form>
+        </Form>*/}
         <Container
           className="mx-auto"
           style={{ marginTop: "50px", textAlign: "center" }}
         >
-          <p>User Dashboard</p>
+          <p className="small_text">User Dashboard</p>
           <h1>
             Welcome{" "}
             <span style={{ color: "var(--primary-theme1)" }}>{username}</span>
           </h1>
-
-          <p className="text-body-secondary">
-            Not you? <a href="/login/">Logout</a>
-          </p>
         </Container>
+
         <Container style={{ marginTop: "50px" }}>
           <Row>
             <Col className="containers_card" style={{ marginLeft: "50px" }}>
-              <h4 className="card-title" style={{ marginTop: "10px" }}>
+              <h4
+                className="card-title d-flex justify-content-center align-center"
+                style={{ marginTop: "10px" }}
+              >
                 Available Containers
               </h4>
               <hr
@@ -147,15 +143,14 @@ function DashboardContent() {
                       "idle",
                   },
                   {
-                    name: "Damn Vulnerable Web App",
+                    name: "DVWA",
                     imageName: "vulnerables/web-dvwa",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
                     runningContainers:
-                      containers.find(
-                        (c) => c.name === "Damn Vulnerable Web App",
-                      )?.status ?? "idle",
+                      containers.find((c) => c.name === "DVWA")?.status ??
+                      "idle",
                   },
                 ]}
               />
@@ -165,12 +160,22 @@ function DashboardContent() {
               style={{ minWidth: "10px", maxWidth: "100px" }}
             ></Col>
             <Col className="containers_card" style={{ marginLeft: "10px" }}>
-              <h3 className="card-title">Container Status</h3>
+              <h4
+                className="card-title d-flex justify-content-center align-center"
+                style={{ marginTop: "10px" }}
+              >
+                Container Status
+              </h4>
+              <hr />
               {containers.length > 0 ? (
                 <ul className="list-unstyled">
                   {containers.map((container, index) => (
                     <li key={index} className="mb-3">
                       <strong>{container.name}</strong>
+                      <Link to={`/logs/${container.id}`}>
+                        {" "}
+                        <strong> View Logs</strong>
+                      </Link>
                       <br />
                       {container.started_at ? (
                         (() => {
@@ -213,12 +218,18 @@ function DashboardContent() {
                   ))}
                 </ul>
               ) : (
-                <p>No running containers.</p>
+                <p
+                  className="small_text d-flex justify-content-center align-center"
+                  style={{ marginTop: "25px" }}
+                >
+                  No running containers.
+                </p>
               )}
             </Col>
           </Row>
         </Container>
       </main>
+      <Footer></Footer>
     </div>
   );
 }
