@@ -88,28 +88,28 @@ function DashboardContent() {
             docker={[
               {
                 name: "PyGoat",
-                imageName: "pygoat/pygoat",
+                appKey: "pygoat",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Juice Shop",
-                imageName: "bkimminich/juice-shop",
+                appKey: "juice-shop",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Grafana",
-                imageName: "grafana/grafana:8.3.0",
+                appKey: "grafana",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",
               },
               {
                 name: "Damn Vulnerable Web App",
-                imageName: "vulnerables/web-dvwa",
+                appKey: "dvwa",
                 startlink: "/",
                 stoplink: "/",
                 restartlink: "/",

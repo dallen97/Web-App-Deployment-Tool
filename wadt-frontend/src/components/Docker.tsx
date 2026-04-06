@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import { Container, Row, Col, Button } from "react-bootstrap"
+import Alert from "react-bootstrap/Alert";
+import { Container, Row, Col, Button } from "react-bootstrap";
 
 
 export interface DockerProps {
@@ -8,7 +9,9 @@ export interface DockerProps {
   startlink: string;
   stoplink: string;
   restartlink: string;
-  imageName: string;
+  /** Catalog key for POST /api/start_container/ (e.g. pygoat, juice-shop). */
+  appKey: string;
+  imageName?: string;
 }
 
 export interface DockerList {
@@ -46,6 +49,8 @@ const Docker = ({ docker = [] }: DockerList) => {
     {},
   );
 
+  const [startErrors, setStartErrors] = useState<{ [key: string]: string }>({});
+
   useEffect(() => {
     // Hydrate running containers after a page reload so buttons show "Open App"
     const hydrateRunningContainers = async () => {
@@ -67,6 +72,11 @@ const Docker = ({ docker = [] }: DockerList) => {
         for (const c of data) {
           if (!c?.name || !c?.id) continue;
 
+          setStartErrors((prev) => {
+            const next = { ...prev };
+            delete next[c.name];
+            return next;
+          });
           setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
 
           if (c.external_url) {
@@ -89,8 +99,12 @@ const Docker = ({ docker = [] }: DockerList) => {
   }, []);
 
   // 1. Start Container
-  const handleStart = async (imageName: string, containerName: string) => {
-    // Immediately show spinner
+  const handleStart = async (appKey: string, containerName: string) => {
+    setStartErrors((prev) => {
+      const next = { ...prev };
+      delete next[containerName];
+      return next;
+    });
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
@@ -102,7 +116,7 @@ const Docker = ({ docker = [] }: DockerList) => {
           "X-CSRFToken": getCookie("wadt_csrftoken") || "",
         },
         body: JSON.stringify({
-          imageName: imageName,
+          app_key: appKey,
           name: containerName,
         }),
       });
@@ -112,8 +126,8 @@ const Docker = ({ docker = [] }: DockerList) => {
       if (response.ok && data.id) {
         console.log("Container started, waiting for port...", data.id);
         window.dispatchEvent(new Event("wadt:containers-changed"));
-        // Begin polling the new endpoint to see when the port is open
         pollForReadiness(data.id, containerName);
+        // Store the container ID on start
         // Store the container ID on start
         setContainerIds((prev) => ({ ...prev, [containerName]: data.id }));
       } else {
@@ -127,11 +141,10 @@ const Docker = ({ docker = [] }: DockerList) => {
     }
   };
 
-  // 2. Poll for Readiness (The "Health Check")
+  // 2. Poll for Readiness (The Real Health Check)
   const pollForReadiness = (containerId: string, containerName: string) => {
     const intervalId = setInterval(async () => {
       try {
-        // Using the new RESTful URL structure: containers/<id>/check-ready/
         const response = await fetch(
           `/api/check_container_ready/${containerId}/`,
           {
@@ -145,12 +158,6 @@ const Docker = ({ docker = [] }: DockerList) => {
         );
 
         if (response.status === 401) {
-          console.error("!!! FRONTEND 401 DETECTED !!!");
-          console.log("Timestamp:", new Date().toISOString());
-          console.log("Current Browser Cookies:", document.cookie);
-          console.log("Am I trying to send credentials? YES (include)");
-
-          // Stop polling so we don't spam the logs
           clearInterval(intervalId);
           setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
           return;
@@ -159,15 +166,15 @@ const Docker = ({ docker = [] }: DockerList) => {
         const data = await response.json();
 
         if (data.ready) {
-          console.log("Container is ready at:", data.url);
+          console.log("Container is officially ready at:", data.url);
           clearInterval(intervalId); // Stop checking
           setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
         }
-        // If data.ready is false, the loop simply continues...
+        // If data.ready is false, the loop simply continues until the 502 goes away!
       } catch (error) {
         console.error("Polling error", error);
-        clearInterval(intervalId); // Stop checking on network error
+        clearInterval(intervalId);
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
       }
     }, 2000); // Check every 2 seconds
@@ -264,7 +271,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                     containerStatus[d.name] === "idle") && (
                     <Button
                       variant="primary"
-                      onClick={() => handleStart(d.imageName, d.name)}
+                      onClick={() => handleStart(d.appKey, d.name)}
                       style={{ marginLeft: "10px" }}
                     >
                       Start
@@ -311,6 +318,26 @@ const Docker = ({ docker = [] }: DockerList) => {
                   </Button>
                   </Col>
                 </Row>
+                {startErrors[d.name] && (
+                  <Row>
+                    <Col>
+                      <Alert
+                        variant="danger"
+                        className="mt-2 mb-0 py-2"
+                        dismissible
+                        onClose={() =>
+                          setStartErrors((prev) => {
+                            const next = { ...prev };
+                            delete next[d.name];
+                            return next;
+                          })
+                        }
+                      >
+                        {startErrors[d.name]}
+                      </Alert>
+                    </Col>
+                  </Row>
+                )}
             </Container>
           </div>
         ))}
