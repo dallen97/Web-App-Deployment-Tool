@@ -22,11 +22,12 @@ font-family: monospace;
 opacity: 1;
 }
 
-/* Search bar on logs page*/
+/* Search bar placeholder text*/
 .log-search::placeholder {
     color: rgba(255, 255, 255, 0.3);
 }
 
+/* Hilight search bar when selected*/
 .log-search:focus {
     background-color: transparent;
     color: var(--bs-body-color);
