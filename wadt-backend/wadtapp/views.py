@@ -39,7 +39,7 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-MAX_CONTAINERS = 4
+MAX_CONTAINERS = 10
 CONTAINER_MEM_LIMIT = "512m"
 CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
@@ -248,6 +248,7 @@ def get_containers(request):
             app_domain = config("APP_DOMAIN", default="localhost")
             protocol = "http" if app_domain == "localhost" else "https"
             external_url = f"{protocol}://{project_name}.{app_domain}"
+            terminal_url = f"{protocol}://terminal.{project_name}.{app_domain}"
 
             container_data.append({
                 "id": project_name, # Send project name so Stop/Restart button works
@@ -255,6 +256,7 @@ def get_containers(request):
                 "image": image_tag,
                 "status": c.status,
                 "external_url": external_url, 
+                "terminal_url": terminal_url,
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
@@ -808,7 +810,6 @@ def get_all_containers_admin(request):
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):
-    # container_id is the Compose Project Name (e.g., wadt-user1-grafana-123456)
     try:
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
     except Container.DoesNotExist:
@@ -816,13 +817,15 @@ def check_container_ready(request, container_id):
 
     app_domain = config("APP_DOMAIN", default="localhost")
     hostname = f"{container_id}.{app_domain}"
+    terminal_hostname = f"terminal.{hostname}" # Define the terminal hostname
 
-    # 1. The Traefik Probe
-    # This hits Traefik internally. It returns True if the app is returning 2xx, 3xx, or 4xx.
-    # It returns False if Traefik is still throwing 502 Bad Gateway.
-    is_ready = _probe_traefik_host(hostname)
+    # 1. The Traefik Probes
+    # Check BOTH the main app and the terminal
+    app_is_ready = _probe_traefik_host(hostname)
+    terminal_is_ready = _probe_traefik_host(terminal_hostname)
 
-    if not is_ready:
+    # If EITHER of them is still throwing a 502 Bad Gateway, keep spinning!
+    if not (app_is_ready and terminal_is_ready):
         return JsonResponse({"ready": False})
 
     # 2. Determine the specific landing page for the "Open App" button
@@ -832,13 +835,15 @@ def check_container_ready(request, container_id):
             app_path = info.get("path", "/")
             break
 
-    # 3. Construct the final exact URL
+    # 3. Construct the final exact URLs
     protocol = "http" if app_domain == "localhost" else "https"
     final_url = f"{protocol}://{hostname}{app_path}"
+    terminal_url = f"{protocol}://{terminal_hostname}" 
 
     return JsonResponse({
         "ready": True,
-        "url": final_url
+        "url": final_url,
+        "terminal_url": terminal_url
     })
 
 def log_user_action(user, action_message, container=None):

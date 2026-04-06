@@ -114,6 +114,21 @@ function DashboardContent() {
                 stoplink: "/",
                 restartlink: "/",
               },
+              {
+                name: "Apache Struts",
+                appKey: "apache-struts",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              },
+              {
+                name: "Shellshock",
+                appKey: "shellshock",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              },
+              {
+                name: "Tiredful API",
+                appKey: "tiredful-api",
+                startlink: "/", stoplink: "/", restartlink: "/",
+              }
             ]}
           />
             </Col>

@@ -44,6 +44,10 @@ const Docker = ({ docker = [] }: DockerList) => {
     {},
   );
 
+  const [terminalUrls, setTerminalUrls] = useState<{ [key: string]: string }>(
+    {},
+  );
+
   // State to store container ID's for stopping and restarting
   const [containerIds, setContainerIds] = useState<{ [key: string]: string }>(
     {},
@@ -67,6 +71,7 @@ const Docker = ({ docker = [] }: DockerList) => {
           name: string;
           status: string;
           external_url: string | null;
+          terminal_url: string | null;
         }>;
 
         for (const c of data) {
@@ -81,6 +86,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
           if (c.external_url) {
             setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
+            setTerminalUrls((prev) => ({ ...prev, [c.name]: c.terminal_url as string }));
             setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
           } else if (c.status === "running") {
             // Container is running but URL isn't ready yet; reuse readiness polling
@@ -169,6 +175,7 @@ const Docker = ({ docker = [] }: DockerList) => {
           console.log("Container is officially ready at:", data.url);
           clearInterval(intervalId); // Stop checking
           setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
+          setTerminalUrls((prev) => ({ ...prev, [containerName]: data.terminal_url }));
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
         }
         // If data.ready is false, the loop simply continues until the 502 goes away!
@@ -292,6 +299,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                   )}
                   {/* 3. READY STATE: Show Open App Button */}
                   {containerStatus[d.name] === "ready" && (
+                    <>
                     <Button
                       variant="success"
                       onClick={() => handleView(d.name)}
@@ -299,6 +307,17 @@ const Docker = ({ docker = [] }: DockerList) => {
                     >
                       Open App
                     </Button>
+                    <Button
+                      variant="dark"
+                      onClick={() => {
+                        const tUrl = terminalUrls[d.name];
+                        if (tUrl) window.open(tUrl, "_blank");
+                      }}
+                      style={{ marginLeft: "10px" }}
+                    >
+                      Terminal
+                    </Button>
+                  </>
                   )}
                   {/* Stop Container*/}
                   <Button
