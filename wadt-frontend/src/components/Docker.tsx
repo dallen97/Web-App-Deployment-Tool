@@ -88,8 +88,8 @@ const Docker = ({ docker = [] }: DockerList) => {
             setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
             setTerminalUrls((prev) => ({ ...prev, [c.name]: c.terminal_url as string }));
             setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
-          } else if (c.status === "running") {
-            // Container is running but URL isn't ready yet; reuse readiness polling
+          } else if (c.status === "starting" || c.status === "running") {
+            // It's still starting, keep the spinner going
             setContainerStatus((prev) => ({ ...prev, [c.name]: "loading" }));
             pollForReadiness(c.id, c.name);
           }
@@ -177,6 +177,7 @@ const Docker = ({ docker = [] }: DockerList) => {
           setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
           setTerminalUrls((prev) => ({ ...prev, [containerName]: data.terminal_url }));
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
+          window.dispatchEvent(new Event("wadt:containers-changed"));
         }
         // If data.ready is false, the loop simply continues until the 502 goes away!
       } catch (error) {

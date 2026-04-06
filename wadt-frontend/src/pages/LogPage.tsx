@@ -16,6 +16,7 @@ interface ContainerInfo
     id: string;
     name: string;
     url: string | null;
+    terminal_url?: string | null;
 }
 
 function LogPage(){
@@ -139,19 +140,42 @@ function LogPage(){
             fetch("/api/get_containers/", { credentials: "include" })
             .then(res => res.json())
             .then(data => {
-                //  Get name and ide of only running containers
                 const containers = data
-                .filter((c: any) => c.status === "running")
-                .map((c: any) => ({ id: c.id, name: c.name, image:c.image, url: c.external_url ?? null }));
-                // update list of running containers
+                // ALLOW 'starting' status through to the UI
+                .filter((c: any) => c.status === "running" || c.status === "starting")
+                .map((c: any) => ({ 
+                    id: c.id, 
+                    name: c.name, 
+                    image: c.image, 
+                    url: c.external_url ?? null,
+                    terminal_url: c.terminal_url ?? null 
+                }));
+                
                 setRunningContainers(containers);
-                setCurrentContainer(prev =>containers.find((c: ContainerInfo) => c.id === prev?.id)?? containers[0]?? null); // update drowpdown button);
+                
+                const urlParams = new URLSearchParams(window.location.search);
+                const targetContainerId = urlParams.get('container');
+
+                setCurrentContainer(prev => 
+                    containers.find((c: ContainerInfo) => c.id === targetContainerId) ?? 
+                    containers.find((c: ContainerInfo) => c.id === prev?.id) ?? 
+                    containers[0] ?? 
+                    null
+                );
             })
-        .catch(err => console.error("Failed to fetch containers:", err));
+            .catch(err => console.error("Failed to fetch containers:", err));
         };
+
         refresh();
-        window.addEventListener("wadt:containers-changed", refresh); // sync log page with dashboard
-        return () => window.removeEventListener("wadt:containers-changed", refresh) // stop memory leak
+        
+        // NEW: Poll every 5 seconds so the buttons unlock automatically!
+        const intervalId = setInterval(refresh, 5000); 
+        window.addEventListener("wadt:containers-changed", refresh); 
+        
+        return () => {
+            clearInterval(intervalId);
+            window.removeEventListener("wadt:containers-changed", refresh); 
+        }
     }, []);
 
     // Log filtering
@@ -260,15 +284,22 @@ function LogPage(){
                     </Button>
                 </div>
             )}
-            {/* Clear Logs and Open app buttons */}
+            {/* Clear Logs, Open app, Open Terminal buttons */}
             <div style={{ display: "flex", gap: "10px" }}>
-                {currentContainer?.url && (
-                    <Button
-                        variant="success"
-                        onClick={() => window.open(currentContainer.url!, "_blank")}>
-                        Open App
-                    </Button>
-                )}
+                <Button
+                    variant={currentContainer?.url ? "success" : "secondary"}
+                    disabled={!currentContainer?.url}
+                    onClick={() => { if (currentContainer?.url) window.open(currentContainer.url, "_blank"); }}>
+                    {currentContainer?.url ? "Open App" : "App Starting..."}
+                </Button>
+                
+                <Button
+                    variant="dark"
+                    disabled={!currentContainer?.terminal_url}
+                    onClick={() => { if (currentContainer?.terminal_url) window.open(currentContainer.terminal_url, "_blank"); }}>
+                    {currentContainer?.terminal_url ? "Terminal" : "Terminal Starting..."}
+                </Button>
+
                 <Button variant="outline-secondary">
                     Clear Logs
                 </Button>
@@ -285,7 +316,7 @@ function LogPage(){
                 display: "flex",
                 gap: "10px",
             }}>
-            {["ALL", "SYSTEM", "CONTAINER", "ERROR"].map((filter) => (
+            {["ALL", "SYSTEM", "CONTAINER", "ERROR", "TERMINAL"].map((filter) => (
                 <Button
                     key={filter}
                     variant={activeFilter === filter ? "primary" : "outline-secondary"}
@@ -316,8 +347,9 @@ function LogPage(){
                     }}>
                         {/* Box and timestamp */}
                         <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
-                            <span style={{
-                                backgroundColor: log.source === "SYSTEM" ? "#0d6efd" : "#198754",
+                        <span style={{
+                                backgroundColor: log.source === "SYSTEM" ? "#0d6efd" : 
+                                                 log.source === "TERMINAL" ? "#212529" : "#198754",
                                 color: "white",
                                 padding: "2px 8px",
                                 borderRadius: "4px",

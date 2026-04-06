@@ -145,31 +145,45 @@ function DashboardContent() {
                 {containers.length > 0 ? (
                   <ul className="list-unstyled">
                     {containers.map((container, index) => (
-                      <li key={index} className="mb-3">
-                        <strong>{container.name}</strong><br/>
-                        {container.started_at ? (
-                          (() => {
-                            const startedMs = Date.parse(container.started_at);
-                            const uptimeSeconds = Number.isFinite(startedMs)
-                              ? Math.max(0, (nowMs - startedMs) / 1000)
-                              : null;
-                            const maxSeconds = typeof container.max_runtime_seconds === "number"
-                              ? container.max_runtime_seconds
-                              : 86400;
-                            const timeLeftSeconds = uptimeSeconds === null ? null : maxSeconds - uptimeSeconds;
-                            return (
-                              <>
-                                Uptime: {uptimeSeconds === null ? container.uptime : formatDuration(uptimeSeconds)}<br/>
-                                Time left: {timeLeftSeconds === null ? container.time_left : (timeLeftSeconds <= 0 ? "Expired" : formatDuration(timeLeftSeconds))}
-                              </>
-                            );
-                          })()
-                        ) : (
-                          <>
-                            Uptime: {container.uptime}<br/>
-                            Time left: {container.time_left}
-                          </>
-                        )}
+                      // 1. ADDED FLEXBOX CLASSES HERE to align text left and button right
+                      <li key={index} className="mb-3 d-flex justify-content-between align-items-center border-bottom pb-2">
+                        
+                        {/* 2. WRAPPED THE TEXT IN A DIV */}
+                        <div>
+                          <strong>{container.name}</strong><br/>
+                          {container.started_at ? (
+                            (() => {
+                              const startedMs = Date.parse(container.started_at);
+                              const uptimeSeconds = Number.isFinite(startedMs)
+                                ? Math.max(0, (nowMs - startedMs) / 1000)
+                                : null;
+                              const maxSeconds = typeof container.max_runtime_seconds === "number"
+                                ? container.max_runtime_seconds
+                                : 86400;
+                              const timeLeftSeconds = uptimeSeconds === null ? null : maxSeconds - uptimeSeconds;
+                              return (
+                                <>
+                                  <span style={{ fontSize: "0.9rem" }}>Uptime: {uptimeSeconds === null ? container.uptime : formatDuration(uptimeSeconds)}</span><br/>
+                                  <span style={{ fontSize: "0.9rem" }}>Time left: {timeLeftSeconds === null ? container.time_left : (timeLeftSeconds <= 0 ? "Expired" : formatDuration(timeLeftSeconds))}</span>
+                                </>
+                              );
+                            })()
+                          ) : (
+                            <>
+                              <span style={{ fontSize: "0.9rem" }}>Uptime: {container.uptime}</span><br/>
+                              <span style={{ fontSize: "0.9rem" }}>Time left: {container.time_left}</span>
+                            </>
+                          )}
+                        </div>
+
+                        <Button 
+                          variant="outline-dark" 
+                          size="sm"
+                          onClick={() => window.location.href = `/logs/?container=${container.id}`}
+                        >
+                          View Logs
+                        </Button>
+
                       </li>
                     ))}
                   </ul>
