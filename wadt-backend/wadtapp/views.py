@@ -5,6 +5,9 @@ import socket
 import docker 
 import time
 import uuid
+import os
+import yaml
+from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
 from django.shortcuts import get_object_or_404, render
@@ -20,6 +23,15 @@ from django.core.paginator import Paginator
 from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
+from .catalog import APP_CATALOG
+
+# Where the YAML files are stored
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+YAML_DIR = os.path.join(CURRENT_DIR, "tmp")
+
+# Ensure the directory exists when Django starts
+if not os.path.exists(YAML_DIR):
+    os.makedirs(YAML_DIR)
 
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
@@ -184,25 +196,34 @@ def current_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
-    #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
-    user_id_str = str(request.user.id)
+    container_data = []
+    max_runtime = timedelta(hours=24)
+    max_runtime_seconds = int(max_runtime.total_seconds())
 
     try:
-        user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}", "status": "running"})
-        container_data = []
-        max_runtime = timedelta(hours=24)
-        max_runtime_seconds = int(max_runtime.total_seconds())
-        for c in user_containers:
+        # Loop through the Compose Projects the DB thinks are running
+        db_containers = Container.objects.filter(user=request.user, status="RUN")
+        
+        for db_c in db_containers:
+            project_name = db_c.docker_container_id
+            
+            # Compose names the primary service container: <project_name>-web-1
+            web_container_name = f"{project_name}-web-1"
+            
+            try:
+                c = client.containers.get(web_container_name)
+            except docker.errors.NotFound:
+                continue # Skip if the container died but the DB still says RUN
+            
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
-            db_container = Container.objects.filter(docker_container_id=c.short_id, user=request.user).first()
-            custom_name = db_container.name if db_container else c.name
             uptime_str = None
             time_left_str = None
             started_at_iso = None
+            
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
                 started_at = parse_datetime(started_at_str)
@@ -213,6 +234,7 @@ def get_containers(request):
                     hours, remainder = divmod(uptime.seconds, 3600)
                     minutes, seconds = divmod(remainder, 60)
                     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+                    
                     time_left = max_runtime - uptime
                     if time_left > timedelta(0):
                         days = time_left.days
@@ -221,84 +243,167 @@ def get_containers(request):
                         time_left_str = f"{days}d {hours}h {minutes}m {seconds}s"
                     else:
                         time_left_str = "Expired"
+
+            # Construct the readable URL directly from the project name
+            app_domain = config("APP_DOMAIN", default="localhost")
+            protocol = "http" if app_domain == "localhost" else "https"
+            external_url = f"{protocol}://{project_name}.{app_domain}"
+
             container_data.append({
-                "id": c.short_id,
-                "name": custom_name,
+                "id": project_name, # Send project name so Stop/Restart button works
+                "name": db_c.name,  # The pretty name (e.g., "PyGoat")
                 "image": image_tag,
                 "status": c.status,
-                "external_url": get_container_url(request, c),
+                "external_url": external_url, 
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
                 "time_left": time_left_str
             })
+            
         return JsonResponse(container_data, safe=False)
-    except APIError:
-         return JsonResponse({"error": "Failed to fetch containers"}, status=500)
+    except Exception as e:
+        print(f"Error in get_containers: {e}")
+        return JsonResponse({"error": "Failed to fetch containers"}, status=500)
     finally:
         client.close()
 
 @require_http_methods(["POST"])
 @login_required
 def start_container(request):
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
         body = json.loads(request.body)
-        image_name = body.get('imageName')
+        
+        # We now look up the app using the key from catalog.py (e.g., "pygoat")
+        app_key = body.get('app_key') 
 
-        if image_name not in ALLOWED_VULN_IMAGES:
-            return JsonResponse({"error": "Unauthorized image requested."}, status=403)
+        if app_key not in APP_CATALOG:
+            return JsonResponse({"error": "Unauthorized or unknown application requested."}, status=403)
 
-        app_name = body.get('name')
+        app_name = body.get('name', app_key) # Custom name from user, defaults to app_key
         user_id_str = str(request.user.id)
+        app_info = APP_CATALOG[app_key]
 
+        # 1. Database & Quota Check
         db_container, created = Container.objects.get_or_create(
             user=request.user,
             name=app_name,
             defaults={
-                'description': f"Sandbox for {image_name}",
+                'description': f"Sandbox for {app_key}",
                 'status': "CREAT",
-                'docker_container_id': ""
+                'docker_container_id': "" # This now stores the Compose Project Name
             }
         )
-
-        docker_container = None
-        if db_container.docker_container_id:
-            try:
-                docker_container = client.containers.get(db_container.docker_container_id)
-            except docker.errors.NotFound:
-                docker_container = None
-
-        if docker_container:
-            if docker_container.status != "running":
-                docker_container.restart()
-            db_container.status = "RUN"
-            db_container.save()
-            return JsonResponse({"status": "success", "id": docker_container.short_id})
 
         other_containers_count = Container.objects.filter(user=request.user).exclude(name=app_name).count()
         if other_containers_count >= MAX_CONTAINERS:
              return JsonResponse({"error": "Quota exceeded."}, status=429)
 
-        client.images.pull(image_name)
-        unique_id = str(uuid.uuid4())[:6] #generates the url-safe container name
-        explicit_name = f"wadt-user{request.user.id}-{unique_id}"
-        config = get_secure_container_config(user_id_str, explicit_name)
-        new_container = client.containers.run(image_name, name=explicit_name, **config)
- 
-        db_container.docker_container_id = new_container.short_id
+        # 2. Generate Project Details
+        # If it already has a project name, reuse it; otherwise, generate a new one
+        existing_id = db_container.docker_container_id
+        
+        if existing_id and existing_id.startswith(f"wadt-user{request.user.id}-{app_key}"):
+            project_name = existing_id
+        else:
+            unique_id = str(uuid.uuid4())[:6]
+            project_name = f"wadt-user{request.user.id}-{app_key}-{unique_id}"
+            db_container.docker_container_id = project_name
+
+        file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
+        network_name = f"{project_name}_default"
+        app_domain = config("APP_DOMAIN", default="localhost")
+
+        # 3. Build the YAML Dictionary
+        compose_dict = {"services": {}}
+        
+        # Build the vulnerable web app service
+        app_port = app_info.get("port", "80")
+        router_rule = f"Host(`{project_name}.{app_domain}`)"
+        
+        compose_dict["services"]["web"] = {
+            "image": app_info["image"],
+            "networks": ["default"],
+            "labels": {
+                "traefik.enable": "true",
+                f"traefik.http.routers.{project_name}.rule": router_rule,
+                f"traefik.http.routers.{project_name}.entrypoints": "web",
+                f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
+                "traefik.docker.network": network_name,
+                "wadt.user_id": user_id_str # Keep tracking the user
+            }
+        }
+
+        # Add optional fields if they exist in the catalog
+        if "environment" in app_info: compose_dict["services"]["web"]["environment"] = app_info["environment"]
+        if "cap_add" in app_info: compose_dict["services"]["web"]["cap_add"] = app_info["cap_add"]
+
+        # Build the Attacker Terminal service
+        terminal_info = APP_CATALOG["attacker-terminal"]
+        compose_dict["services"]["attacker"] = {
+            "image": terminal_info["image"],
+            "command": terminal_info["command"],
+            "networks": ["default"],
+            "labels": {
+                "traefik.enable": "true",
+                f"traefik.http.routers.{project_name}-terminal.rule": f"Host(`terminal.{project_name}.{app_domain}`)",
+                f"traefik.http.routers.{project_name}-terminal.entrypoints": "web",
+                f"traefik.http.services.{project_name}-terminal.loadbalancer.server.port": terminal_info["port"],
+                "traefik.docker.network": network_name
+            }
+        }
+
+        # 4. Save YAML to Disk
+        with open(file_path, 'w') as f:
+            yaml.dump(compose_dict, f)
+
+        # 5. Execute Docker Compose
+        custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+        custom_docker.compose.up(detach=True)
+
+        # 6. Bridge Traefik to the new isolated network
+        os.system(f"docker network connect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
+
+        # 7. Update Database
         db_container.status = "RUN"
         db_container.save()
-        log_user_action(request.user, f"Started container '{db_container.name}'", db_container)
+        log_user_action(request.user, f"Deployed composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "id": new_container.short_id}, status=201)
+        return JsonResponse({"status": "success", "id": project_name}, status=201)
         
     except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
-    finally:
-        client.close()
+        print(f"Deployment Error: {str(e)}")
+        return JsonResponse({"error": "Failed to deploy application stack."}, status=500)
+
+def _get_user_container(client, user, container_id):
+    try:
+        container = client.containers.get(container_id)
+        
+        if container.labels.get("wadt.user_id") != str(user.id):
+            return None, JsonResponse({"error": "Unauthorized"}, status=403)
+        return container, None
+    except NotFound:
+        return None, JsonResponse({"error": "Container not found"}, status=404)
+
+def _get_user_container(client, user, container_id):
+    try:
+        container = client.containers.get(container_id)
+        
+        if container.labels.get("wadt.user_id") != str(user.id):
+            return None, JsonResponse({"error": "Unauthorized"}, status=403)
+        return container, None
+    except NotFound:
+        return None, JsonResponse({"error": "Container not found"}, status=404)
+
+def _get_user_container(client, user, container_id):
+    try:
+        container = client.containers.get(container_id)
+        
+        if container.labels.get("wadt.user_id") != str(user.id):
+            return None, JsonResponse({"error": "Unauthorized"}, status=403)
+        return container, None
+    except NotFound:
+        return None, JsonResponse({"error": "Container not found"}, status=404)
 
 def _get_user_container(client, user, container_id):
     try:
@@ -313,55 +418,63 @@ def _get_user_container(client, user, container_id):
 @require_http_methods(["POST"])
 @login_required
 def stop_container(request, container_id):
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)
-    
+    # container_id is now our Compose Project Name (e.g., wadt-user2-grafana-69ba3a)
     try:
-        container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response: 
-            return error_response
-
-        container.stop()
-
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+    except Container.DoesNotExist:
+        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
+
+    project_name = db_container.docker_container_id
+    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
+    network_name = f"{project_name}_default"
+
+    try:
+        # 1. Evict Traefik (silent fail if already gone)
+        os.system(f"docker network disconnect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
+
+        # 2. Docker Compose Down
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            # 'v' removes volumes, 'orphans' cleans up the attacker terminal
+            custom_docker.compose.down(volumes=True, remove_orphans=True)
+            os.remove(file_path) # Clean up the tmp YAML file
+
+        # 3. Update DB
         db_container.status = "STOP"
         db_container.save()
-        log_user_action(request.user, f"Stopped container '{db_container.name}'", db_container)
+        log_user_action(request.user, f"Stopped and removed composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "message": f"Container {container_id} stopped."})
+        return JsonResponse({"status": "success", "message": f"Project {project_name} stopped."})
     except Exception as e:
         print(f"Error in stop_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occured."}, status=500)
-    finally:
-        client.close()
+        return JsonResponse({"error": "An internal error occurred while stopping."}, status=500)
     
 @require_http_methods(["POST"])
 @login_required
 def restart_container(request, container_id):
-    #used if somebody needs to refresh container to apply changes
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)
     try:
-        container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response: 
-            return error_response
-
-        container.restart()
-
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+    except Container.DoesNotExist:
+        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
+
+    project_name = db_container.docker_container_id
+    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
+
+    try:
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.restart()
+        else:
+            return JsonResponse({"error": "YAML configuration missing. Cannot restart."}, status=404)
+
         db_container.status = "RUN"
         db_container.save()
+        log_user_action(request.user, f"Restarted composed project '{db_container.name}'", db_container)
 
-        log_user_action(request.user, f"Refreshed container '{db_container.name}'", db_container)
-
-        return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
+        return JsonResponse({"status": "success", "message": f"Project {project_name} restarted."})
     except Exception as e:
         print(f"Error in restart_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occured."}, status=500)
-    finally:
-        client.close()
+        return JsonResponse({"error": "An internal error occurred while restarting."}, status=500)
 
 @require_http_methods(["POST"])
 @login_required
@@ -695,33 +808,38 @@ def get_all_containers_admin(request):
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)
-    
+    # container_id is the Compose Project Name (e.g., wadt-user1-grafana-123456)
     try:
-        docker_container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response:
-            return error_response
+        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+    except Container.DoesNotExist:
+        return JsonResponse({"error": "Unauthorized"}, status=403)
 
-        if docker_container.status != "running":
-            return JsonResponse({"ready": False})
+    app_domain = config("APP_DOMAIN", default="localhost")
+    hostname = f"{container_id}.{app_domain}"
 
-        app_domain = config("APP_DOMAIN", default="localhost")
-        protocol = "http" if app_domain == "localhost" else "https"
-        hostname = f"{docker_container.name}.{app_domain}"
-        subdomain_url = f"{protocol}://{hostname}"
+    # 1. The Traefik Probe
+    # This hits Traefik internally. It returns True if the app is returning 2xx, 3xx, or 4xx.
+    # It returns False if Traefik is still throwing 502 Bad Gateway.
+    is_ready = _probe_traefik_host(hostname)
 
-        # Backend readiness: only mark ready when Traefik can reach this host
-        is_ready = _probe_traefik_host(hostname)
+    if not is_ready:
+        return JsonResponse({"ready": False})
 
-        return JsonResponse({
-            "ready": is_ready,
-            "url": subdomain_url if is_ready else None
-        })
-            
-    finally:
-        client.close()
+    # 2. Determine the specific landing page for the "Open App" button
+    app_path = "/"
+    for key, info in APP_CATALOG.items():
+        if f"-{key}-" in container_id:
+            app_path = info.get("path", "/")
+            break
+
+    # 3. Construct the final exact URL
+    protocol = "http" if app_domain == "localhost" else "https"
+    final_url = f"{protocol}://{hostname}{app_path}"
+
+    return JsonResponse({
+        "ready": True,
+        "url": final_url
+    })
 
 def log_user_action(user, action_message, container=None):
     try:
