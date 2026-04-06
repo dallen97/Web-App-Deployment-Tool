@@ -8,8 +8,8 @@ APP_CATALOG = {
         "port": "3000"
     },
     "grafana": {
-        "image": "grafana/grafana:8.3.0",  # Pinned to the vulnerable version
-        "port": "3000"  # Fix 3: changed from 3000 to avoid collision with juice-shop
+        "image": "grafana/grafana:8.3.0",  
+        "port": "3000"  
     },
     "dvwa": {
         "image": "vulnerables/web-dvwa",
@@ -31,7 +31,6 @@ APP_CATALOG = {
             "traefik.http.services.attacker.loadbalancer.server.port": "7681"
         }
     },
-    # Fix 4: removed duplicate shellshock entry — keeping only this one with Traefik labels
     "shellshock": {
         "image": "vulnerables/cve-2014-6271",
         "port": "80",
