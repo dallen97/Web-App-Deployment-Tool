@@ -4,6 +4,7 @@ import urllib.error
 import socket
 import docker 
 import time
+import uuid
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
 from django.shortcuts import get_object_or_404, render
@@ -284,7 +285,6 @@ def start_container(request):
              return JsonResponse({"error": "Quota exceeded."}, status=429)
 
         client.images.pull(image_name)
-        import uuid
         unique_id = str(uuid.uuid4())[:6] #generates the url-safe container name
         explicit_name = f"wadt-user{request.user.id}-{unique_id}"
         config = get_secure_container_config(user_id_str, explicit_name)
@@ -368,7 +368,7 @@ def restart_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
-    client = docker.from_env()
+    client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
@@ -506,7 +506,8 @@ def create_organization(request):
             "status": "success",
             "message": f"Organization '{new_org.name}' created successfully.",
             "org_code": new_org.org_code,
-            "organization_name": new_org.name
+            "organization_name": new_org.name,
+            "org_id": new_org.id
         }, status=201)
 
     except json.JSONDecodeError:
@@ -570,6 +571,66 @@ def leave_organization(request):
 
     except Exception as e:
         print(f"Error in leave_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["POST", "DELETE"])
+@login_required
+def delete_organization(request, org_id):
+    profile = getattr(request.user, 'profile', None)
+
+    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = get_object_or_404(Organization, id=org_id)
+        if profile.role == 'ADMIN' and profile.organization != org:
+            return JsonResponse({"error": "You can only delete an organization you own."}, status=403)
+        org_name = org.name
+        org.delete()
+        log_user_action(request.user, f"Deleted organization '{org_name}'")
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Organization '{org_name}' has been deleted."
+        })
+
+    except Exception as e:
+        print(f"Error in delete_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["GET"])
+@login_required
+def get_organization_stats(request):
+    profile = getattr(request.user, 'profile', None)
+    
+    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = profile.organization
+
+        if profile.role == 'SUPER' and not org:
+            member_count = UserProfile.objects.count()
+            container_count = Container.objects.count()
+            org_name = "All users"
+        
+        elif org:
+            member_count = UserProfile.objects.filter(organization=org).count()
+            container_count = Container.objects.filter(organization=org).count()
+            org_name = org.name
+            
+        else:
+            return JsonResponse({"error": "You are not assigned to an organization."}, status=400)
+
+        return JsonResponse({
+            "status": "success",
+            "organization_name": org_name,
+            "member_count": member_count,
+            "container_count": container_count
+        })
+
+    except Exception as e:
+        print(f"Error in get_organization_stats: {str(e)}")
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
 
 @require_http_methods(["GET"])
