@@ -1,0 +1,29 @@
+services:
+  attacker:
+    command: bash -c 'apt-get update && apt-get install -y nmap curl iputils-ping
+      && curl -L https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64
+      -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && ttyd -W bash'
+    image: kalilinux/kali-rolling:latest
+    labels:
+      traefik.docker.network: wadt-user5-dvwa-ec5bd0_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user5-dvwa-ec5bd0-terminal.entrypoints: web
+      traefik.http.routers.wadt-user5-dvwa-ec5bd0-terminal.rule: Host(`terminal.wadt-user5-dvwa-ec5bd0.localhost`)
+      traefik.http.services.wadt-user5-dvwa-ec5bd0-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    cap_add:
+    - SETUID
+    - SETGID
+    - CHOWN
+    image: vulnerables/web-dvwa
+    labels:
+      traefik.docker.network: wadt-user5-dvwa-ec5bd0_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user5-dvwa-ec5bd0.entrypoints: web
+      traefik.http.routers.wadt-user5-dvwa-ec5bd0.rule: Host(`wadt-user5-dvwa-ec5bd0.localhost`)
+      traefik.http.services.wadt-user5-dvwa-ec5bd0.loadbalancer.server.port: '80'
+      wadt.user_id: '5'
+    networks:
+    - default

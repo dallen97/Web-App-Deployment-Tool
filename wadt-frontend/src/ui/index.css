@@ -99,3 +99,8 @@ h4 {
   color: var(--primary-theme1);
   border-color: var(--secondary-theme1);
 }
+
+.custom_button {
+  background-color: var(--secondary-theme1);
+  color: white;
+}

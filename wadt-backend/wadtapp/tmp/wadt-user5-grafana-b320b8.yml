@@ -1,0 +1,25 @@
+services:
+  attacker:
+    command: bash -c 'apt-get update && apt-get install -y nmap curl iputils-ping
+      && curl -L https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64
+      -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && ttyd -W bash'
+    image: kalilinux/kali-rolling:latest
+    labels:
+      traefik.docker.network: wadt-user5-grafana-b320b8_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user5-grafana-b320b8-terminal.entrypoints: web
+      traefik.http.routers.wadt-user5-grafana-b320b8-terminal.rule: Host(`terminal.wadt-user5-grafana-b320b8.localhost`)
+      traefik.http.services.wadt-user5-grafana-b320b8-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: grafana/grafana:8.3.0
+    labels:
+      traefik.docker.network: wadt-user5-grafana-b320b8_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user5-grafana-b320b8.entrypoints: web
+      traefik.http.routers.wadt-user5-grafana-b320b8.rule: Host(`wadt-user5-grafana-b320b8.localhost`)
+      traefik.http.services.wadt-user5-grafana-b320b8.loadbalancer.server.port: '3000'
+      wadt.user_id: '5'
+    networks:
+    - default
