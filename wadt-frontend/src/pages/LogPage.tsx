@@ -1,7 +1,7 @@
 import ContainerDropdown from "../components/ContainerDropdown";
-import { Card, Button, Spinner, Badge, ListGroup } from "react-bootstrap";
+import { Card, Button, Spinner } from "react-bootstrap";
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+
 /* TODO: 
     Clear logs button -> make it actually do something
     Make look better
@@ -15,6 +15,7 @@ interface ContainerInfo {
   id: string;
   name: string;
   url: string | null;
+  terminal_url?: string | null;
 }
 
 function LogPage() {
@@ -29,10 +30,6 @@ function LogPage() {
   >([]); // log messages
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeFilter, setActiveFilter] = useState<string>("ALL"); // Filter for logs
-  const [searchQuery, setSearchQuery] = useState<string>(""); // Search bar query
-
-  const { id: selectedContainerId } = useParams(); // Track selected container from dashboard
-  const navigate = useNavigate();
 
   // Dashboard manages multiple contaners, just need to manage 1 at a time for logs
   // Adjusted code from dashboard for single container
@@ -111,6 +108,7 @@ function LogPage() {
           prev ? { ...prev, id: data.new_id } : null,
         );
         window.dispatchEvent(new Event("wadt:containers-changed")); //update dashboard
+        const data = await response.json();
       } else console.error("Failed to reset container:", data.error);
     } catch (err) {
       console.error("Error resetting container:", err);
@@ -145,41 +143,53 @@ function LogPage() {
     }
   };
 
-  // Default to chosen container from dashboard
-  useEffect(() => {
-    if (!selectedContainerId || runningContainers.length === 0) return;
-
-    const selected = runningContainers.find(
-      (c) => c.id === selectedContainerId,
-    );
-    if (selected) setCurrentContainer(selected);
-  }, [selectedContainerId, runningContainers]);
-
   // Get list of running containers when opening page
   useEffect(() => {
     const refresh = () => {
       fetch("/api/get_containers/", { credentials: "include" })
         .then((res) => res.json())
         .then((data) => {
-          //  Get name and ide of only running containers
           const containers = data
-            .filter((c: any) => c.status === "running")
+            // ALLOW 'starting' status through to the UI
+            .filter(
+              (c: any) => c.status === "running" || c.status === "starting",
+            )
             .map((c: any) => ({
               id: c.id,
               name: c.name,
               image: c.image,
               url: c.external_url ?? null,
+              terminal_url: c.terminal_url ?? null,
             }));
-          // update list of running containers
+
           setRunningContainers(containers);
-          // Default if not redirecting from dashboard page link
-          if (!selectedContainerId) setCurrentContainer(containers[0] ?? null);
+
+          const urlParams = new URLSearchParams(window.location.search);
+          const targetContainerId = urlParams.get("container");
+
+          setCurrentContainer(
+            (prev) =>
+              containers.find(
+                (c: ContainerInfo) => c.id === targetContainerId,
+              ) ??
+              containers.find((c: ContainerInfo) => c.id === prev?.id) ??
+              containers[0] ??
+              null,
+          );
         })
         .catch((err) => console.error("Failed to fetch containers:", err));
     };
+
     refresh();
-    window.addEventListener("wadt:containers-changed", refresh); // sync log page with dashboard
-    return () => window.removeEventListener("wadt:containers-changed", refresh); // stop memory leak
+
+    // NEW: Poll every 5 seconds so the buttons unlock automatically!
+    const intervalId = setInterval(refresh, 5000);
+    window.addEventListener("wadt:containers-changed", refresh);
+
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("wadt:containers-changed", refresh);
+    };
   }, []);
 
   // Log filtering
@@ -188,11 +198,6 @@ function LogPage() {
       ? logs
       : logs.filter((log) => log.source === activeFilter)
   )
-    .filter(
-      (log) =>
-        searchQuery === "" ||
-        log.message.toLowerCase().includes(searchQuery.toLowerCase()),
-    )
     .slice()
     .reverse();
 
@@ -234,112 +239,7 @@ function LogPage() {
   return (
     // Header card
     <>
-      <Card className="container_card">
-        <Card.Body
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            position: "relative",
-          }}
-        >
-          {/* Back to dashboard button */}
-          <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-            <Button
-              variant="outline-secondary"
-              style={{ position: "absolute", left: "2vw" }}
-              onClick={() => navigate("/dashboard")}
-            >
-              Back to Dashboard
-            </Button>
-            {/* Page title */}
-            <Card.Title style={{ fontSize: "3rem" }}>Container Logs</Card.Title>
-          </div>
-          {/*Dropdown button*/}
-          <div style={{ position: "absolute", right: "2vw" }}>
-            <ContainerDropdown
-              runningContainers={runningContainers.map((c) => c.name)}
-              currentContainer={currentContainer?.name ?? null}
-              setCurrentContainer={(name) => {
-                const findContainer =
-                  runningContainers.find((c) => c.name === name) ?? null;
-                setCurrentContainer(findContainer);
-              }}
-            />
-          </div>
-        </Card.Body>
-      </Card>
-      {/* Second card with stop, restart, reset and clear logs buttons */}
-      <Card className="mt-2">
-        <Card.Body
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          {!currentContainer ? (
-            <span style={{ color: "secondary", fontStyle: "italic" }}>
-              Select a container to see actions
-            </span>
-          ) : (
-            <div style={{ display: "flex", gap: "10px" }}>
-              {/* Loading spinner */}
-              {isLoading && (
-                <Button variant="primary" disabled>
-                  <Spinner
-                    as="span"
-                    animation="border"
-                    size="sm"
-                    role="status"
-                    aria-hidden="true"
-                  />
-                  <span className="visually-hidden">Loading...</span>
-                </Button>
-              )}
-              {/* Stop, Reset, Restart buttons */}
-              <div style={{ display: "flex", gap: "10px" }}>
-                <Button
-                  variant="danger"
-                  disabled={isLoading}
-                  onClick={handleStop}
-                >
-                  Stop
-                </Button>
-                <Button
-                  variant="info"
-                  disabled={isLoading}
-                  onClick={handleReset}
-                >
-                  Reset
-                </Button>
-                <Button
-                  variant="warning"
-                  disabled={isLoading}
-                  onClick={handleRestart}
-                >
-                  Restart
-                </Button>
-              </div>
-            </div>
-          )}
-          {/* Open app buttons when restart chosen*/}
-          <div style={{ display: "flex", gap: "10px" }}>
-            {currentContainer?.url && (
-              <Button
-                variant="success"
-                onClick={() => window.open(currentContainer.url!, "_blank")}
-              >
-                Open App
-              </Button>
-            )}
-            <Button variant="outline-secondary">Clear Logs</Button>
-          </div>
-        </Card.Body>
-      </Card>
-
-      {/* Thrid Card with filters and  search bar*/}
-      <Card className="mt-2">
+      <Card>
         <Card.Body
           style={{
             display: "flex",
@@ -407,57 +307,169 @@ function LogPage() {
           </div>
         </Card.Body>
       </Card>
+      {/* Second card with stop, restart, reset and clear logs buttons */}
+      <Card className="mt-2">
+        <Card.Body
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          {!currentContainer ? (
+            <span style={{ color: "gray", fontStyle: "italic" }}>
+              Select a container to see actions
+            </span>
+          ) : (
+            <div style={{ display: "flex", gap: "10px" }}>
+              {/* Loading spinner */}
+              {isLoading && (
+                <Button variant="primary" disabled>
+                  <Spinner
+                    as="span"
+                    animation="border"
+                    size="sm"
+                    role="status"
+                    aria-hidden="true"
+                  />
+                  <span className="visually-hidden">Loading...</span>
+                </Button>
+              )}
+              {/* Stop button */}
+              <Button
+                variant="danger"
+                disabled={isLoading}
+                onClick={handleStop}
+              >
+                Stop
+              </Button>
+              {/* Reset button */}
+              <Button variant="info" disabled={isLoading} onClick={handleReset}>
+                Reset
+              </Button>
+              {/* Restart button*/}
+              <Button
+                variant="warning"
+                disabled={isLoading}
+                onClick={handleRestart}
+              >
+                Restart
+              </Button>
+            </div>
+          )}
+          {/* Clear Logs, Open app, Open Terminal buttons */}
+          <div style={{ display: "flex", gap: "10px" }}>
+            <Button
+              variant={currentContainer?.url ? "success" : "secondary"}
+              disabled={!currentContainer?.url}
+              onClick={() => {
+                if (currentContainer?.url)
+                  window.open(currentContainer.url, "_blank");
+              }}
+            >
+              {currentContainer?.url ? "Open App" : "App Starting..."}
+            </Button>
 
-      {/* Fourth Card, the actual logs */}
+            <Button
+              variant="dark"
+              disabled={!currentContainer?.terminal_url}
+              onClick={() => {
+                if (currentContainer?.terminal_url)
+                  window.open(currentContainer.terminal_url, "_blank");
+              }}
+            >
+              {currentContainer?.terminal_url
+                ? "Terminal"
+                : "Terminal Starting..."}
+            </Button>
+
+            <Button variant="outline-secondary">Clear Logs</Button>
+          </div>
+        </Card.Body>
+      </Card>
+      {/* Thrid Card with search bar*/}
+
+      {/*Fourth Card with Filter for types of logs*/}
+      {/* TODO: Implement error button */}
+      <Card className="mt-2">
+        <Card.Body
+          style={{
+            display: "flex",
+            gap: "10px",
+          }}
+        >
+          {["ALL", "SYSTEM", "CONTAINER", "ERROR", "TERMINAL"].map((filter) => (
+            <Button
+              key={filter}
+              variant={
+                activeFilter === filter ? "primary" : "outline-secondary"
+              }
+              disabled={filter === "ERROR"}
+              onClick={() => setActiveFilter(filter)}
+              style={{ opacity: filter === "ERROR" ? 0.5 : 1 }}
+            >
+              {filter === "ALL"
+                ? "All Logs"
+                : filter.charAt(0) + filter.slice(1).toLowerCase()}
+            </Button>
+          ))}
+        </Card.Body>
+      </Card>
+
+      {/* Fifth Card The actual logs */}
       <Card className="mt-2">
         <Card.Body>
           {filteredLogs.length === 0 ? (
-            <span
-              style={{
-                color: "var(--bs-secondary-color)",
-                fontStyle: "italic",
-              }}
-            >
+            <span style={{ color: "gray", fontStyle: "italic" }}>
               No logs to display
             </span>
           ) : (
-            <ListGroup>
-              {filteredLogs.map((log, i) => (
-                <ListGroup.Item
-                  key={i}
-                  variant={log.source === "ERROR" ? "danger" : undefined}
+            filteredLogs.map((log, i) => (
+              <div
+                key={i}
+                style={{
+                  marginBottom: "15px",
+                  padding: "10px",
+                  borderRadius: "5px",
+                  backgroundColor:
+                    log.source === "ERROR" ? "#2d0000" : "transparent",
+                  border: "2px solid #333",
+                }}
+              >
+                {/* Box and timestamp */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    marginBottom: "5px",
+                  }}
                 >
-                  {/* Badges and timestamp */}
-                  <div
+                  <span
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "10px",
-                      marginBottom: "5px",
+                      backgroundColor:
+                        log.source === "SYSTEM"
+                          ? "#0d6efd"
+                          : log.source === "TERMINAL"
+                            ? "#212529"
+                            : "#198754",
+                      color: "white",
+                      padding: "2px 8px",
+                      borderRadius: "4px",
+                      fontSize: "0.8rem",
+                      fontWeight: "bold",
                     }}
                   >
-                    <Badge
-                      bg={
-                        log.source === "SYSTEM"
-                          ? "primary"
-                          : log.source === "CONTAINER"
-                            ? "success"
-                            : log.source === "ERROR"
-                              ? "danger"
-                              : "secondary"
-                      }
-                    >
-                      {log.source}
-                    </Badge>
-                    <span style={{ color: "gray", fontSize: "0.85rem" }}>
-                      {new Date(log.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  {/* Log message */}
-                  <div style={{ fontSize: "0.9rem" }}>{log.message}</div>
-                </ListGroup.Item>
-              ))}
-            </ListGroup>
+                    {log.source}
+                  </span>
+                  <span style={{ color: "gray", fontSize: "0.85rem" }}>
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </span>
+                </div>
+                {/* Message */}
+                <div style={{ fontSize: "0.9rem" }}>{log.message}</div>
+              </div>
+            ))
           )}
         </Card.Body>
       </Card>

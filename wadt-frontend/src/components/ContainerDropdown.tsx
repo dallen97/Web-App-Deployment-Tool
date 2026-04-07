@@ -6,6 +6,13 @@ interface ContainerDropdownProps {
   setCurrentContainer: (container: string) => void; // update state on logpage
 }
 
+// Interface for container option buttons
+interface ContainerInfo {
+    id: string;
+    name: string;
+    image: string; 
+}
+
 function ContainerDropdown({runningContainers, currentContainer, setCurrentContainer}: ContainerDropdownProps) {
 
   // Drowpdown for button

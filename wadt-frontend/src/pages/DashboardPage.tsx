@@ -89,7 +89,7 @@ function DashboardContent() {
         </Form>*/}
         <Container
           className="mx-auto"
-          style={{ marginTop: "50px", textAlign: "center" }}
+          style={{ marginTop: "25px", textAlign: "center" }}
         >
           <p className="small_text">User Dashboard</p>
           <h1>
@@ -98,7 +98,7 @@ function DashboardContent() {
           </h1>
         </Container>
 
-        <Container style={{ marginTop: "50px" }}>
+        <Container style={{ marginTop: "50px", marginBottom: "50px" }}>
           <Row>
             <Col className="containers_card" style={{ marginLeft: "50px" }}>
               <h4
@@ -114,7 +114,7 @@ function DashboardContent() {
                 docker={[
                   {
                     name: "PyGoat",
-                    imageName: "pygoat/pygoat",
+                    appKey: "pygoat",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -124,7 +124,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Juice Shop",
-                    imageName: "bkimminich/juice-shop",
+                    appKey: "juice-shop",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -134,7 +134,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Grafana",
-                    imageName: "grafana/grafana:8.3.0",
+                    appKey: "grafana",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -144,12 +144,42 @@ function DashboardContent() {
                   },
                   {
                     name: "DVWA",
-                    imageName: "vulnerables/web-dvwa",
+                    appKey: "dvwa",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
                     runningContainers:
                       containers.find((c) => c.name === "DVWA")?.status ??
+                      "idle",
+                  },
+                  {
+                    name: "Apache Struts",
+                    appKey: "apache-struts",
+                    startlink: "/",
+                    stoplink: "/",
+                    restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "apache-struts")
+                        ?.status ?? "idle",
+                  },
+                  {
+                    name: "Shellshock",
+                    appKey: "shellshock",
+                    startlink: "/",
+                    stoplink: "/",
+                    restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "shellshock")?.status ??
+                      "idle",
+                  },
+                  {
+                    name: "Tiredful API",
+                    appKey: "tiredful-api",
+                    startlink: "/",
+                    stoplink: "/",
+                    restartlink: "/",
+                    runningContainers:
+                      containers.find((c) => c.name === "shellshock")?.status ??
                       "idle",
                   },
                 ]}

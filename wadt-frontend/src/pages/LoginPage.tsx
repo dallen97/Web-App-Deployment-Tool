@@ -60,6 +60,22 @@ function LoginPage() {
       .catch(() => {});
   }, []);
 
+  // get CSRF token from backend (and set cookie for same origin)
+  useEffect(() => {
+    fetch("/api/get_csrf_token/", { method: "GET", credentials: "include" })
+      .then((res) => {
+        if (!res.ok) return null;
+        const contentType = res.headers.get("content-type");
+        if (contentType?.includes("application/json")) return res.json();
+        return null;
+      })
+      .then(
+        (data: { csrfToken?: string } | null) =>
+          data?.csrfToken && setCsrfToken(data.csrfToken),
+      )
+      .catch(() => {});
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
