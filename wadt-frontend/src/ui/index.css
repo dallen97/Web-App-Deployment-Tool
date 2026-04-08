@@ -160,3 +160,28 @@ h4 {
   color: #8b949e;
   line-height: 1.5;
 }
+
+.containers_card .dropdown-toggle,
+.containers_card .dropdown-toggle:hover,
+.containers_card .dropdown-toggle:focus {
+  background-color: var(--secondary-theme1);
+  border-color: var(--primary-theme1);
+  color: white;
+  font-family: "Exo 2";
+}
+
+.containers_card .dropdown-menu {
+  background-color: rgb(10, 10, 10);
+  border: 0.5px solid var(--primary-theme1);
+  font-family: "Exo 2";
+}
+
+.containers_card .dropdown-item {
+  color: white;
+  font-family: "Exo 2";
+}
+
+.containers_card .dropdown-item:hover {
+  background-color: var(--secondary-theme1);
+  color: white;
+}
