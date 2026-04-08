@@ -170,73 +170,20 @@ export default function Sidebar() {
                 </Button>
               )}
             </Form>
+            <div className="d-flex align-items-center my-3">
+              <hr className="flex-grow-1" />
+              <span className="mx-2">OR</span>
+              <hr className="flex-grow-1" />
+            </div>
 
-            <span style={{ marginTop: "30px" }}> OR </span>
+            <Button
+              onClick={handleAdmin}
+              className="start_button w-100"
+              size="sm"
+            >
+              Create Group
+            </Button>
 
-            <Form onSubmit={handleAdmin}>
-              <p className="section-header">Create Group</p>
-              <div className="section-body"></div>
-              <Form.Group>
-                <Form.Label>Group Name</Form.Label>
-                <Form.Control
-                  type="text"
-                  onChange={(e) => setOrgCode(e.target.value)}
-                />
-              </Form.Group>
-
-              {spinner === false && !groupName && (
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="w-100 start_button mt-1"
-                >
-                  Create Group
-                </Button>
-              )}
-
-              {spinner === true && !groupName && (
-                <Button
-                  type="submit"
-                  size="sm"
-                  className="w-100 start_button mt-1"
-                  disabled
-                >
-                  <Spinner
-                    as="span"
-                    animation="border"
-                    size="sm"
-                    role="status"
-                    aria-hidden="true"
-                  ></Spinner>
-                </Button>
-              )}
-              {spinner === false && groupName && (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={leaveOrg}
-                  className="w-100 mt-1"
-                >
-                  Leave Organization
-                </Button>
-              )}
-              {spinner === true && groupName && (
-                <Button
-                  variant="danger"
-                  size="sm"
-                  disabled
-                  className="w-100 mt-1"
-                >
-                  <Spinner
-                    as="span"
-                    animation="border"
-                    size="sm"
-                    role="status"
-                    aria-hidden="true"
-                  ></Spinner>
-                </Button>
-              )}
-            </Form>
             {status === "failed" && showBadge && (
               <Badge bg={"danger"}>Failed, please try again</Badge>
             )}

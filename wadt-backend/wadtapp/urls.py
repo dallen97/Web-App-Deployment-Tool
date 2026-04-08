@@ -28,4 +28,5 @@ urlpatterns = [
     path('get_all_containers_admin/', views.get_all_containers_admin, name='get_all_containers_admin'),
     path('organization_stats/', views.get_organization_stats, name='get_organization_stats'),
     path('delete_organization/<int:org_id>/', views.delete_organization, name='delete_organization'),
+    path('remove_member/<int:target_user_id>/', views.remove_member, name='remove_member'),
 ]

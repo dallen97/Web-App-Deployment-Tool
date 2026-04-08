@@ -29,6 +29,7 @@
   opacity: 1;
 }
 
+/* Search bar on logs page*/
 .log-search::placeholder {
   color: rgba(255, 255, 255, 0.3);
 }

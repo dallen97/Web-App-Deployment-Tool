@@ -5,7 +5,7 @@ import RegisterPage from "./pages/RegisterPage";
 import AdminPage from "./pages/AdminPage";
 import Account from "./pages/AccountPage";
 import DashboardLayout from "./components/DashboardLayout";
-import LogPage from "./pages/LogPage";
+//import LogPage from "./pages/LogPage";
 
 //Create routes for the website
 
@@ -39,11 +39,11 @@ const router = createBrowserRouter([
     element: <Account />,
   },
 
-  // Logs page
-  {
-    path: "/logs/:id",
-    element: <LogPage />,
-  },
+  // // Logs page
+  // {
+  //   path: "/logs/:id",
+  //   element: <LogPage />,
+  // },
 
   // Admin Page
   {

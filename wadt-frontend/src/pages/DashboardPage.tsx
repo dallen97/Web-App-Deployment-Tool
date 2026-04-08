@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Docker from "../components/Docker";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
-import { Container, Row, Col, Button } from "react-bootstrap";
+import { Container, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
 
 function DashboardContent() {
@@ -101,7 +101,8 @@ function DashboardContent() {
                 docker={[
                   {
                     name: "PyGoat",
-                    appKey: "pygoat",
+                    imageName: "pygoat/pygoat",
+                    appKey: "pygoat/pygoat",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -111,7 +112,8 @@ function DashboardContent() {
                   },
                   {
                     name: "Juice Shop",
-                    appKey: "juice-shop",
+                    imageName: "bkimminich/juice-shop",
+                    appKey: "bkimminich/juice-shop",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -121,7 +123,8 @@ function DashboardContent() {
                   },
                   {
                     name: "Grafana",
-                    appKey: "grafana",
+                    imageName: "grafana/grafana:8.3.0",
+                    appKey: "grafana/grafana:8.3.0",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -131,7 +134,8 @@ function DashboardContent() {
                   },
                   {
                     name: "DVWA",
-                    appKey: "dvwa",
+                    imageName: "vulnerables/web-dvwa",
+                    appKey: "vulnerables/web-dvwa",
                     startlink: "/",
                     stoplink: "/",
                     restartlink: "/",
@@ -141,6 +145,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Apache Struts",
+                    imageName: "apache-struts",
                     appKey: "apache-struts",
                     startlink: "/",
                     stoplink: "/",
@@ -151,6 +156,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Shellshock",
+                    imageName: "shellshock",
                     appKey: "shellshock",
                     startlink: "/",
                     stoplink: "/",
@@ -161,6 +167,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Tiredful API",
+                    imageName: "tiredful-api",
                     appKey: "tiredful-api",
                     startlink: "/",
                     stoplink: "/",

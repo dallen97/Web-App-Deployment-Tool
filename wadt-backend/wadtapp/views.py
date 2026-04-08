@@ -12,7 +12,7 @@ from django.http import JsonResponse
 from django.contrib.auth.models import User 
 from django.contrib.auth import authenticate, login, logout 
 from django.views.decorators.http import require_http_methods 
-from django.contrib.auth.decorators import login_required 
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.csrf import ensure_csrf_cookie 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -27,7 +27,7 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-MAX_CONTAINERS = 4
+MAX_CONTAINERS = 10
 CONTAINER_MEM_LIMIT = "512m"
 CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
@@ -37,6 +37,9 @@ ALLOWED_VULN_IMAGES = [
     "bkimminich/juice-shop",
     "grafana/grafana:8.3.0",
     "vulnerables/web-dvwa"
+    "tiredful-api"
+    "shellshock"
+    "apache-struts"
 ]
 
 def get_secure_container_config(user_id_str, container_name):
@@ -426,7 +429,11 @@ def reset_container(request, container_id):
 @login_required
 def request_teacher_status(request):
     profile = request.user.profile
-    if profile.role in ['ADMIN', 'SUPER']:
+
+    if not profile.organization:
+         return JsonResponse({"error": "You must join an organization before requesting admin status."}, status=400)
+    
+    if profile.role in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "You already have elevated privileges."}, status=400)
     
     if profile.is_pending_teacher:
@@ -443,14 +450,24 @@ def request_teacher_status(request):
 @require_http_methods(["GET"])
 @login_required
 def get_pending_teachers(request):
-    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+    profile = getattr(request.user, 'profile', None)
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
-    pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
+    if profile.role in ['ADMIN', 'COADMIN']:
+        if not profile.organization:
+             return JsonResponse({"pending_requests": []})
+        pending_profiles = UserProfile.objects.filter(
+            is_pending_teacher=True, 
+            organization=profile.organization
+        ).select_related('user')
+    else:
+        pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
     
     data = [{
         "user_id": p.user.id,
         "username": p.user.username,
+        "organization": p.organization.name if p.organization else "None",
         "date_joined": p.user.date_joined.strftime("%Y-%m-%d")
     } for p in pending_profiles]
 
@@ -459,7 +476,8 @@ def get_pending_teachers(request):
 @require_http_methods(["POST"])
 @login_required
 def approve_teacher(request, target_user_id):
-    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+    profile = getattr(request.user, 'profile', None)
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
@@ -469,7 +487,10 @@ def approve_teacher(request, target_user_id):
         if not target_profile.is_pending_teacher:
             return JsonResponse({"error": "This user does not have a pending request."}, status=400)
         
-        target_profile.role = 'ADMIN'
+        if profile.role in ['ADMIN', 'COADMIN'] and target_profile.organization != profile.organization:
+             return JsonResponse({"error": "You can only approve co-admins within your own organization."}, status=403)
+        
+        target_profile.role = 'COADMIN'
         target_profile.is_pending_teacher = False
         target_profile.save()
         log_user_action(request.user, f"Approved Teacher privileges for user '{target_user.username}'")
@@ -484,15 +505,56 @@ def approve_teacher(request, target_user_id):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+@require_http_methods(["POST", "DELETE"])
+@login_required
+def remove_member(request, target_user_id):
+    request_profile = getattr(request.user, 'profile', None)
+    
+    if not request_profile or request_profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized. You do not have permission to remove members."}, status=403)
+
+    try:
+        target_user = User.objects.get(id=target_user_id)
+        target_profile = target_user.profile
+        
+        if request_profile.role != 'SUPER':
+            if target_profile.organization != request_profile.organization:
+                return JsonResponse({"error": "This user is not in your organization."}, status=403)
+            
+            if request_profile.role == 'COADMIN':
+                if target_profile.role in ['ADMIN', 'COADMIN', 'SUPER']:
+                    return JsonResponse({"error": "Co-Admins can only remove students."}, status=403)
+            
+            elif request_profile.role == 'ADMIN':
+                if target_profile.role in ['ADMIN', 'SUPER']:
+                    return JsonResponse({"error": "You cannot remove the Organization Owner or a Superuser."}, status=403)
+                    
+        org_name = target_profile.organization.name if target_profile.organization else "Unknown"
+        
+        target_profile.organization = None
+        target_profile.role = 'STUDENT' 
+        target_profile.is_pending_teacher = False 
+        target_profile.save()
+        
+        Container.objects.filter(user=target_user).update(organization=None)
+
+        log_user_action(request.user, f"Removed {target_user.username} from organization '{org_name}'")
+        log_user_action(target_user, f"Removed from organization '{org_name}' by {request.user.username}")
+        
+        return JsonResponse({
+            "status": "success",
+            "message": f"User {target_user.username} has been removed and demoted to Student."
+        })
+        
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Target user not found."}, status=404)
+    except Exception as e:
+        print(f"Error in remove_member: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
 @require_http_methods(["POST"])
 @login_required
 def create_organization(request):
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['ADMIN', 'SUPER']:
-        return JsonResponse({
-            "error": "Unauthorized. Only approved Teachers and Admins can create organizations."
-        }, status=403)
-
     try:
         data = json.loads(request.body)
         org_name = data.get('name', '').strip()
@@ -504,8 +566,10 @@ def create_organization(request):
 
         profile = request.user.profile
         profile.organization = new_org
+        profile.role = 'ADMIN'
         profile.save()
-        log_user_action(request.user, f"Created organization '{new_org.name}'")
+
+        log_user_action(request.user, f"Created organization '{new_org.name}' and became Admin")
         Container.objects.filter(user=request.user).update(organization=new_org)
 
         return JsonResponse({
@@ -584,7 +648,7 @@ def leave_organization(request):
 def delete_organization(request, org_id):
     profile = getattr(request.user, 'profile', None)
 
-    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized."}, status=403)
 
     try:
@@ -609,7 +673,7 @@ def delete_organization(request, org_id):
 def get_organization_stats(request):
     profile = getattr(request.user, 'profile', None)
     
-    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized."}, status=403)
 
     try:
@@ -705,14 +769,14 @@ def get_all_containers_admin(request):
 
     user_role = user_profile.role
 
-    if user_role not in ['SUPER', 'ADMIN']:
+    if user_role not in ['SUPER', 'COADMIN', 'ADMIN']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
         page_number = request.GET.get('page', 1)
         users_with_containers = User.objects.filter(container__isnull=False).distinct()
 
-        if user_role == 'ADMIN':
+        if user_role in ['ADMIN', 'COADMIN']:
             admin_org = user_profile.organization
             if not admin_org:
                 users_with_containers = User.objects.none()
@@ -724,7 +788,7 @@ def get_all_containers_admin(request):
         page_obj = paginator.get_page(page_number)
         users_on_page = page_obj.object_list
 
-        if user_role == 'ADMIN':
+        if user_role in ['ADMIN', 'COADMIN']:
             containers = Container.objects.filter(
                 user__in=users_on_page, 
                 organization=admin_org
