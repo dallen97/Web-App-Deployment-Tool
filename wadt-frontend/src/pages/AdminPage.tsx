@@ -88,11 +88,26 @@ function AdminPage() {
     }
   };
 
+  const handleUser = () => {
+    navigate("/dashboard");
+  };
+
+  const handleDelete = () => {
+    if (
+      window.confirm(
+        `Are you sure you want to delete your organization? This cannot be undone.`,
+      )
+    ) {
+      deleteOrg();
+    }
+  };
+
   const deleteOrg = async () => {
     const response = await fetch(`/api/delete_organization/${orgID}/`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "X-CSRFToken": getCookie("wadt_csrftoken") || "",
       },
       body: JSON.stringify({
         org_id: orgID,
@@ -101,7 +116,6 @@ function AdminPage() {
     const data = await response.json();
     if (data.status === "success") {
       setViews("createClass");
-      console.log("Left Organization");
     } else {
       console.log("ERROR in leaving organization");
     }
@@ -115,6 +129,7 @@ function AdminPage() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
           },
           body: JSON.stringify({
             name: groupName,
@@ -154,6 +169,18 @@ function AdminPage() {
               />
             </InputGroup>
           </Form>
+          <div className="d-flex align-items-center my-3">
+            <hr className="flex-grow-1" />
+            <span className="mx-2">OR</span>
+            <hr className="flex-grow-1" />
+          </div>
+          <div className="d-flex align-items-center my-3">
+            <hr className="flex-grow-1" />
+            <Button className="start_button" onClick={handleUser}>
+              Return to User Dashboard
+            </Button>
+            <hr className="flex-grow-1" />
+          </div>
         </div>
       </>
     );
@@ -164,7 +191,7 @@ function AdminPage() {
       <>
         <div style={{ position: "relative" }}>
           <Button
-            onClick={deleteOrg}
+            onClick={handleDelete}
             size="sm"
             className="start_button"
             style={{ position: "absolute", top: "2", right: "2" }}

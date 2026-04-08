@@ -27,7 +27,7 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-MAX_CONTAINERS = 4
+MAX_CONTAINERS = 10
 CONTAINER_MEM_LIMIT = "512m"
 CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
@@ -37,6 +37,9 @@ ALLOWED_VULN_IMAGES = [
     "bkimminich/juice-shop",
     "grafana/grafana:8.3.0",
     "vulnerables/web-dvwa"
+    "tiredful-api"
+    "shellshock"
+    "apache-struts"
 ]
 
 def get_secure_container_config(user_id_str, container_name):

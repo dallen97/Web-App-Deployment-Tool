@@ -156,7 +156,7 @@ function DashboardContent() {
                   },
                   {
                     name: "Shellshock",
-                    imageName: "tiredful-api",
+                    imageName: "shellshock",
                     appKey: "shellshock",
                     startlink: "/",
                     stoplink: "/",
