@@ -18,6 +18,8 @@ export interface DockerProps {
   runningContainers: string;
   /** Catalog key for POST /api/start_container/ (e.g. pygoat, juice-shop). */
   appKey: string;
+  /** Docker image name (e.g. pygoat:latest). */
+  imageName: string;
 }
 
 export interface DockerList {
@@ -117,7 +119,11 @@ const Docker = ({ docker = [] }: DockerList) => {
   }, []);
 
   // 1. Start Container
-  const handleStart = async (appKey: string, containerName: string) => {
+  const handleStart = async (
+    appKey: string,
+    imageName: string,
+    containerName: string,
+  ) => {
     setStartErrors((prev) => {
       const next = { ...prev };
       delete next[containerName];
@@ -135,6 +141,7 @@ const Docker = ({ docker = [] }: DockerList) => {
         },
         body: JSON.stringify({
           app_key: appKey,
+          imageName: imageName,
           name: containerName,
         }),
       });
@@ -145,8 +152,6 @@ const Docker = ({ docker = [] }: DockerList) => {
         console.log("Container started, waiting for port...", data.id);
         window.dispatchEvent(new Event("wadt:containers-changed"));
         pollForReadiness(data.id, containerName);
-        // Store the container ID on start
-        // Store the container ID on start
         setContainerIds((prev) => ({ ...prev, [containerName]: data.id }));
       } else {
         console.error("Start failed:", data);
@@ -311,7 +316,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                     containerStatus[d.name] === "idle") && (
                     <Button
                       className="start_button"
-                      onClick={() => handleStart(d.appKey, d.name)}
+                      onClick={() => handleStart(d.appKey, d.imageName, d.name)}
                       style={{ marginLeft: "10px" }}
                       size="sm"
                     >
@@ -360,7 +365,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                     </>
                   )}
 
-                  {/* 4. Stop, Restart, Reset dropwdown when running- Just an idea for fitting restart */}
+                  {/* 4. Stop, Restart, Reset when running */}
                   {(containerStatus[d.name] === "loading" ||
                     containerStatus[d.name] === "ready") && (
                     <>
@@ -390,33 +395,6 @@ const Docker = ({ docker = [] }: DockerList) => {
                       </Button>
                     </>
                   )}
-
-                  {/* TEMP COMMENT OUT OLD BUTTONS FOR TESTING
-                  *---------------------------------------------------------------
-                  /* Stop Container
-                  <Button
-                    variant="danger"
-                    onClick={() => handleStop(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Stop
-                  </Button>
-                  /*Restart Contaienr
-                  <Button
-                    variant="warning"
-                    onClick={() => handleRestart(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Restart
-                  </Button>
-                  /* Reset Container 
-                  <Button
-                    variant="info"
-                    onClick={() => handleReset(containerIds[d.name])}
-                    style={{ marginLeft: "10px" }}>
-                    Reset
-                  </Button> 
-                  ------------------------------------------------------------------*/}
                 </Col>
               </Row>
 
