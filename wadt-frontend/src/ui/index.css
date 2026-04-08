@@ -1,37 +1,163 @@
 /*Add more too root*/
 /*Imported Cyborg theme from bootswatch*/
+/*Imported JetBrains Mono font*/
 @import "bootswatch/dist/cyborg/bootstrap.min.css";
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Exo 2:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap");
 /* Customize themes in more detail under root*/
-:root {
 
+:root {
+  --primary-theme1: #2496ed;
+  --secondary-theme1: #066da5;
+  --background-theme1: #000000;
+  --text-theme1: #ffffff;
 }
 /* Formats text inside input boxes for login/register*/
 .loginForm input::placeholder {
-color: var(--bs-primary);
-font-weight: 900;
-font-size: 1.2rem;
-font-family: monospace;
-opacity: 1;
+  color: var(--bs-primary);
+  font-weight: 900;
+  font-size: 1.2rem;
+  font-family: monospace;
+  opacity: 1;
 }
 /* Formats text inside input boxes for login/register*/
 .loginForm input {
-color: var(--bs-primary);
-font-weight: 900;
-font-size: 1.2rem;
-font-family: monospace;
-opacity: 1;
+  color: var(--bs-primary);
+  font-weight: 900;
+  font-size: 1.2rem;
+  font-family: monospace;
+  opacity: 1;
 }
 
 /* Search bar on logs page*/
 .log-search::placeholder {
-    color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.3);
 }
 
 .log-search:focus {
-    background-color: transparent;
-    color: var(--bs-body-color);
-    border-color: var(--bs-primary);
-    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
+  background-color: transparent;
+  color: var(--bs-body-color);
+  border-color: var(--bs-primary);
+  box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.25);
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(hsla(210, 83%, 55%, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(210, 83%, 55%, 0.1) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: -1;
+}
 
+h1 {
+  font-weight: 700;
+  font-size: 4.25rem;
+  font-family: "Exo 2";
+}
+
+h3 {
+  font-weight: 700;
+  font-family: "Exo 2";
+}
+
+h4 {
+  font-weight: 600;
+  font-family: "Exo 2";
+}
+
+.card_title {
+  font-weight: 600;
+  font-size: 1.75rem;
+  font-family: "Exo 2";
+  color: var(--text-theme1);
+  border: 1px solid var(--primary-theme1);
+}
+
+.containers_card {
+  background-color: rgb(10, 10, 10);
+  border-top: 2.75px solid var(--primary-theme1);
+  border-right: 0.5px solid var(--primary-theme1);
+  border-left: 0.5px solid var(--primary-theme1);
+  border-bottom: 0.5px solid var(--primary-theme1);
+  font-family: "Exo 2";
+  font-weight: 400;
+  color: white;
+}
+
+.small_text {
+  font-family: monospace;
+  font-variant-caps: all-small-caps;
+  font-size: 25px;
+  color: var(--primary-theme1);
+  font-weight: 700;
+}
+
+.table {
+  color: var(--primary-theme1);
+  border-color: var(--secondary-theme1);
+}
+
+.navbar {
+  background-color: #111b2c !important;
+  border-bottom: 1px solid #1a2744 !important;
+}
+
+.navbar_button {
+  color: #4da6ff;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(77, 166, 255, 0.35);
+  background: rgba(77, 166, 255, 0.08);
+  border-radius: 7px;
+  box-shadow: none;
+  padding: 5px 12px;
+}
+
+.start_button {
+  background-color: var(--secondary-theme1);
+  color: var(--text-theme1);
+}
+
+.offcanvas {
+  background-color: #111b2c !important;
+  color: var("--text-theme1");
+}
+
+.offcanvas-title {
+  font-family: "Exo 2";
+  align-self: center;
+  margin-top: 5px;
+  text-transform: uppercase;
+  color: #4da6ff;
+}
+
+.offcanvas-body {
+  font-family: "Exo 2";
+  overflow: visible !important;
+  align-items: flex-start !important;
+  gap: 0;
+}
+
+.section-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: #4da6ff;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  margin-top: 10px;
+}
+
+.section-body {
+  padding: 0 12px 12px;
+}
+
+.section-text {
+  font-size: 13px;
+  color: #8b949e;
+  line-height: 1.5;
+}

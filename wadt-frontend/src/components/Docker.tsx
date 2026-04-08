@@ -1,13 +1,23 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import { Container, Row, Col, Button, DropdownButton, Dropdown } from "react-bootstrap"
+import {
+  Container,
+  Row,
+  Col,
+  Button,
+  DropdownButton,
+  Dropdown,
+  Alert,
+} from "react-bootstrap";
 
 export interface DockerProps {
   name: string;
   startlink: string;
   stoplink: string;
   restartlink: string;
-  imageName: string;
+  runningContainers: string;
+  /** Catalog key for POST /api/start_container/ (e.g. pygoat, juice-shop). */
+  appKey: string;
 }
 
 export interface DockerList {
@@ -40,10 +50,16 @@ const Docker = ({ docker = [] }: DockerList) => {
     {},
   );
 
+  const [terminalUrls, setTerminalUrls] = useState<{ [key: string]: string }>(
+    {},
+  );
+
   // State to store container ID's for stopping and restarting
   const [containerIds, setContainerIds] = useState<{ [key: string]: string }>(
     {},
   );
+
+  const [startErrors, setStartErrors] = useState<{ [key: string]: string }>({});
 
   useEffect(() => {
     // Hydrate running containers after a page reload so buttons show "Open App"
@@ -61,18 +77,31 @@ const Docker = ({ docker = [] }: DockerList) => {
           name: string;
           status: string;
           external_url: string | null;
+          terminal_url: string | null;
         }>;
 
         for (const c of data) {
           if (!c?.name || !c?.id) continue;
 
+          setStartErrors((prev) => {
+            const next = { ...prev };
+            delete next[c.name];
+            return next;
+          });
           setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
 
           if (c.external_url) {
-            setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
+            setContainerUrls((prev) => ({
+              ...prev,
+              [c.name]: c.external_url as string,
+            }));
+            setTerminalUrls((prev) => ({
+              ...prev,
+              [c.name]: c.terminal_url as string,
+            }));
             setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
-          } else if (c.status === "running") {
-            // Container is running but URL isn't ready yet; reuse readiness polling
+          } else if (c.status === "starting" || c.status === "running") {
+            // It's still starting, keep the spinner going
             setContainerStatus((prev) => ({ ...prev, [c.name]: "loading" }));
             pollForReadiness(c.id, c.name);
           }
@@ -88,8 +117,12 @@ const Docker = ({ docker = [] }: DockerList) => {
   }, []);
 
   // 1. Start Container
-  const handleStart = async (imageName: string, containerName: string) => {
-    // Immediately show spinner
+  const handleStart = async (appKey: string, containerName: string) => {
+    setStartErrors((prev) => {
+      const next = { ...prev };
+      delete next[containerName];
+      return next;
+    });
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
@@ -101,7 +134,7 @@ const Docker = ({ docker = [] }: DockerList) => {
           "X-CSRFToken": getCookie("wadt_csrftoken") || "",
         },
         body: JSON.stringify({
-          imageName: imageName,
+          app_key: appKey,
           name: containerName,
         }),
       });
@@ -111,8 +144,8 @@ const Docker = ({ docker = [] }: DockerList) => {
       if (response.ok && data.id) {
         console.log("Container started, waiting for port...", data.id);
         window.dispatchEvent(new Event("wadt:containers-changed"));
-        // Begin polling the new endpoint to see when the port is open
         pollForReadiness(data.id, containerName);
+        // Store the container ID on start
         // Store the container ID on start
         setContainerIds((prev) => ({ ...prev, [containerName]: data.id }));
       } else {
@@ -126,11 +159,10 @@ const Docker = ({ docker = [] }: DockerList) => {
     }
   };
 
-  // 2. Poll for Readiness (The "Health Check")
+  // 2. Poll for Readiness (The Real Health Check)
   const pollForReadiness = (containerId: string, containerName: string) => {
     const intervalId = setInterval(async () => {
       try {
-        // Using the new RESTful URL structure: containers/<id>/check-ready/
         const response = await fetch(
           `/api/check_container_ready/${containerId}/`,
           {
@@ -144,12 +176,6 @@ const Docker = ({ docker = [] }: DockerList) => {
         );
 
         if (response.status === 401) {
-          console.error("!!! FRONTEND 401 DETECTED !!!");
-          console.log("Timestamp:", new Date().toISOString());
-          console.log("Current Browser Cookies:", document.cookie);
-          console.log("Am I trying to send credentials? YES (include)");
-
-          // Stop polling so we don't spam the logs
           clearInterval(intervalId);
           setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
           return;
@@ -158,15 +184,20 @@ const Docker = ({ docker = [] }: DockerList) => {
         const data = await response.json();
 
         if (data.ready) {
-          console.log("Container is ready at:", data.url);
+          console.log("Container is officially ready at:", data.url);
           clearInterval(intervalId); // Stop checking
           setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
+          setTerminalUrls((prev) => ({
+            ...prev,
+            [containerName]: data.terminal_url,
+          }));
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
+          window.dispatchEvent(new Event("wadt:containers-changed"));
         }
-        // If data.ready is false, the loop simply continues...
+        // If data.ready is false, the loop simply continues until the 502 goes away!
       } catch (error) {
         console.error("Polling error", error);
-        clearInterval(intervalId); // Stop checking on network error
+        clearInterval(intervalId);
         setContainerStatus((prev) => ({ ...prev, [containerName]: "idle" }));
       }
     }, 2000); // Check every 2 seconds
@@ -219,17 +250,14 @@ const Docker = ({ docker = [] }: DockerList) => {
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
-      const response = await fetch(
-        `/api/restart_container/${containerId}/`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-          },
+      const response = await fetch(`/api/restart_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
         },
-      );
+      });
       const data = await response.json();
 
       if (response.ok) {
@@ -249,50 +277,55 @@ const Docker = ({ docker = [] }: DockerList) => {
   // 6. Reset container
   const handleReset = async (containerId: string) => {
     try {
-        const response = await fetch(`/api/reset_container/${containerId}/`, {
-            method: "POST",
-            credentials: "include",
-            headers: {
-                "Content-Type": "application/json",
-                "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-            },
-        });
-        const data = await response.json();
-        if (response.ok)
-            window.dispatchEvent(new Event("wadt:containers-changed"));
-        else
-            console.error("Failed to reset container:", data.error);
+      const response = await fetch(`/api/reset_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+        },
+      });
+      const data = await response.json();
+      if (response.ok)
+        window.dispatchEvent(new Event("wadt:containers-changed"));
+      else console.error("Failed to reset container:", data.error);
     } catch (err) {
-        console.error("Error resetting container:", err);
+      console.error("Error resetting container:", err);
     }
-};
+  };
 
   return (
     <>
-      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)"}}>
+      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)" }}>
         {docker.map((d, i) => (
-          <div key={i} style={{ marginTop: "35px" }} >
+          <div key={i} style={{ marginTop: "35px" }}>
             <Container className="mb-3">
               <Row className="align-items-center">
-                <Col>
-                  <strong>{d.name} container</strong>
+                <Col md={3}>
+                  <strong>{d.name}</strong>
                 </Col>
-                
+
                 <Col className="text-end">
                   {/* 1. IDLE STATE: Show Start Button */}
                   {(!containerStatus[d.name] ||
                     containerStatus[d.name] === "idle") && (
                     <Button
-                      variant="primary"
-                      onClick={() => handleStart(d.imageName, d.name)}
+                      className="start_button"
+                      onClick={() => handleStart(d.appKey, d.name)}
                       style={{ marginLeft: "10px" }}
+                      size="sm"
                     >
                       Start
                     </Button>
                   )}
                   {/* 2. LOADING STATE: Show Spinner */}
                   {containerStatus[d.name] === "loading" && (
-                    <Button variant="primary" disabled style={{ marginLeft: "10px" }}>
+                    <Button
+                      variant="primary"
+                      disabled
+                      style={{ marginLeft: "10px" }}
+                      size="sm"
+                    >
                       <Spinner
                         as="span"
                         animation="border"
@@ -305,28 +338,57 @@ const Docker = ({ docker = [] }: DockerList) => {
                   )}
                   {/* 3. READY STATE: Show Open App Button */}
                   {containerStatus[d.name] === "ready" && (
-                    <Button
-                      variant="success"
-                      onClick={() => handleView(d.name)}
-                      style={{ marginLeft: "10px" }}
-                    >
-                      Open App
-                    </Button>
+                    <>
+                      <Button
+                        variant="success"
+                        onClick={() => handleView(d.name)}
+                        style={{ marginLeft: "10px" }}
+                        size="sm"
+                      >
+                        Open App
+                      </Button>
+                      <Button
+                        variant="dark"
+                        onClick={() => {
+                          const tUrl = terminalUrls[d.name];
+                          if (tUrl) window.open(tUrl, "_blank");
+                        }}
+                        style={{ marginLeft: "10px" }}
+                      >
+                        Terminal
+                      </Button>
+                    </>
                   )}
 
                   {/* 4. Stop, Restart, Reset dropwdown when running- Just an idea for fitting restart */}
-                  {(containerStatus[d.name] === "loading" || containerStatus[d.name] === "ready") && (
-                      <>
-                          <Button variant="danger" style={{marginLeft: "10px"}}onClick={() => handleStop(d.name)}>
-                              Stop
-                          </Button>
-                          <Button variant="warning" style={{marginLeft: "10px"}} onClick={() => handleRestart(d.name)}>
-                              Restart
-                          </Button>
-                          <Button variant="info"  style={{marginTop: "10px"}} onClick={() => handleReset(containerIds[d.name])} >
-                                  Reset
-                          </Button>
-                      </>
+                  {(containerStatus[d.name] === "loading" ||
+                    containerStatus[d.name] === "ready") && (
+                    <>
+                      <Button
+                        variant="danger"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleStop(d.name)}
+                        size="sm"
+                      >
+                        Stop
+                      </Button>
+                      <Button
+                        variant="warning"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleRestart(d.name)}
+                        size="sm"
+                      >
+                        Restart
+                      </Button>
+                      <Button
+                        variant="info"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleReset(containerIds[d.name])}
+                        size="sm"
+                      >
+                        Reset
+                      </Button>
+                    </>
                   )}
 
                   {/* TEMP COMMENT OUT OLD BUTTONS FOR TESTING
@@ -355,10 +417,29 @@ const Docker = ({ docker = [] }: DockerList) => {
                     Reset
                   </Button> 
                   ------------------------------------------------------------------*/}
+                </Col>
+              </Row>
 
-                
+              {startErrors[d.name] && (
+                <Row>
+                  <Col>
+                    <Alert
+                      variant="danger"
+                      className="mt-2 mb-0 py-2"
+                      dismissible
+                      onClose={() =>
+                        setStartErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[d.name];
+                          return next;
+                        })
+                      }
+                    >
+                      {startErrors[d.name]}
+                    </Alert>
                   </Col>
                 </Row>
+              )}
             </Container>
           </div>
         ))}
@@ -368,6 +449,5 @@ const Docker = ({ docker = [] }: DockerList) => {
     </>
   );
 };
-
 
 export default Docker;

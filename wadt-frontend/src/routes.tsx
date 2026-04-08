@@ -2,10 +2,10 @@ import { createBrowserRouter } from "react-router-dom";
 import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import Dashboard from "./components/DashboardLayout";
+import AdminPage from "./pages/AdminPage";
 import Account from "./pages/AccountPage";
 import DashboardLayout from "./components/DashboardLayout";
-import LogPage from "./pages/LogPage";
+//import LogPage from "./pages/LogPage";
 
 //Create routes for the website
 
@@ -39,11 +39,17 @@ const router = createBrowserRouter([
     element: <Account />,
   },
 
-  // Log page
-{
-  path: "/logs/:id",
-  element: <LogPage />,
-}
+  // // Logs page
+  // {
+  //   path: "/logs/:id",
+  //   element: <LogPage />,
+  // },
+
+  // Admin Page
+  {
+    path: "/admin",
+    element: <AdminPage />,
+  },
 ]);
 
 export default router;
