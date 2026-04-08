@@ -1,0 +1,26 @@
+http:
+  routers:
+    api:
+      rule: "PathPrefix(`/api`)"
+      entryPoints:
+        - web
+      service: django-api
+      priority: 100
+
+    frontend:
+      rule: "PathPrefix(`/`)"
+      entryPoints:
+        - web
+      service: frontend-static
+      priority: 1
+
+  services:
+    django-api:
+      loadBalancer:
+        servers:
+          - url: "http://host.docker.internal:8000"
+
+    frontend-static:
+      loadBalancer:
+        servers:
+          - url: "http://web-app-deployment-tool-frontend-1:80"
