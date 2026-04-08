@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import Docker from "../components/Docker";
 import Footer from "../components/Footer";
 import Header from "../components/Header";
-import { Container, Row, Col, Button } from "react-bootstrap";
+import { Container, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
 
 function DashboardContent() {

@@ -1,14 +1,6 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import {
-  Container,
-  Row,
-  Col,
-  Button,
-  DropdownButton,
-  Dropdown,
-  Alert,
-} from "react-bootstrap";
+import { Container, Row, Col, Button, Alert } from "react-bootstrap";
 
 export interface DockerProps {
   name: string;
@@ -359,6 +351,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                           if (tUrl) window.open(tUrl, "_blank");
                         }}
                         style={{ marginLeft: "10px" }}
+                        size="sm"
                       >
                         Terminal
                       </Button>

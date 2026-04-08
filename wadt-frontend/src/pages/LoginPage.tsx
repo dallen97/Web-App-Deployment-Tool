@@ -133,12 +133,7 @@ function LoginPage() {
         const userData = await userResponse.json();
         console.log("User data:", userData);
 
-        // Redirect based on role
-        if (userData.role === "SUPER" || userData.role === "ADMIN") {
-          navigate("/admin");
-        } else {
-          navigate("/dashboard");
-        }
+        navigate("/dashboard");
       } else {
         console.error("Failed to fetch user data");
         // Default to dashboard if we can't determine role
