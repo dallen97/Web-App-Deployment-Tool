@@ -310,7 +310,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                   {(!containerStatus[d.name] ||
                     containerStatus[d.name] === "idle") && (
                     <Button
-                      className="custom_button"
+                      className="start_button"
                       onClick={() => handleStart(d.appKey, d.name)}
                       style={{ marginLeft: "10px" }}
                       size="sm"

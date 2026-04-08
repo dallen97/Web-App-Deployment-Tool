@@ -100,7 +100,63 @@ h4 {
   border-color: var(--secondary-theme1);
 }
 
-.custom_button {
+.navbar {
+  background-color: #111b2c !important;
+  border-bottom: 1px solid #1a2744 !important;
+}
+
+.navbar_button {
+  color: #4da6ff;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border: 1px solid rgba(77, 166, 255, 0.35);
+  background: rgba(77, 166, 255, 0.08);
+  border-radius: 7px;
+  box-shadow: none;
+  padding: 5px 12px;
+}
+
+.start_button {
   background-color: var(--secondary-theme1);
-  color: white;
+  color: var(--text-theme1);
+}
+
+.offcanvas {
+  background-color: #111b2c !important;
+  color: var("--text-theme1");
+}
+
+.offcanvas-title {
+  font-family: "Exo 2";
+  align-self: center;
+  margin-top: 5px;
+  text-transform: uppercase;
+  color: #4da6ff;
+}
+
+.offcanvas-body {
+  font-family: "Exo 2";
+  overflow: visible !important;
+  align-items: flex-start !important;
+  gap: 0;
+}
+
+.section-header {
+  font-size: 15px;
+  font-weight: 600;
+  color: #4da6ff;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 16px;
+  margin-top: 10px;
+}
+
+.section-body {
+  padding: 0 12px 12px;
+}
+
+.section-text {
+  font-size: 13px;
+  color: #8b949e;
+  line-height: 1.5;
 }

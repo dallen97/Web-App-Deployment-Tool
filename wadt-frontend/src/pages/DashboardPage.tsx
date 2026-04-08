@@ -5,12 +5,6 @@ import Header from "../components/Header";
 import { Container, Row, Col, Button } from "react-bootstrap";
 import { Link } from "react-router-dom";
 
-/*
-  Things to add:
-  - Footer
-  - Sidebar
-*/
-
 function DashboardContent() {
   const [username, setUsername] = useState<string>("");
   const [containers, setContainers] = useState<any[]>([]);
@@ -74,19 +68,12 @@ function DashboardContent() {
     <div className="d-flex flex-column min-vh-100">
       <Header
         buttons={[
-          { link: "#", text: `Welcome, ${username}`, isText: true },
+          { link: "#", text: `${username}`, isText: true },
           { link: "/login/", text: "Logout" },
         ]}
         align="left"
       />
       <main className="flex-grow-1">
-        {/* <Form onSubmit={joinOrg}>
-          <InputGroup>
-            <Form.Control
-              onChange={(e) => setOrgCode(e.target.value)}
-            ></Form.Control>
-          </InputGroup>
-        </Form>*/}
         <Container
           className="mx-auto"
           style={{ marginTop: "25px", textAlign: "center" }}

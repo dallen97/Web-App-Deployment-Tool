@@ -1,13 +1,18 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Button, Table } from "react-bootstrap";
 
-interface userInfo {
+export interface userInfo {
   name: string;
   con_name: string;
   con_status: string;
   con_id: string;
   started_at: string | null;
   max_runtime_seconds: number;
+}
+
+interface UserTablesProps {
+  data: userInfo[];
+  onStop: (row: userInfo) => Promise<void>;
 }
 
 function groupByUser(data: userInfo[]): Record<string, userInfo[]> {
@@ -34,25 +39,8 @@ const formatDuration = (totalSeconds: number) => {
   return `${days}d ${hours}h ${minutes}m ${seconds}s`;
 };
 
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== "") {
-    const cookies = document.cookie.split(";");
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === name + "=") {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
-
-function UserTables() {
-  const [data, setData] = useState<userInfo[]>([]);
+function UserTables({ data, onStop }: UserTablesProps) {
   const [extended, setExtended] = useState<Record<string, boolean>>({});
-  const [isPolling, setIsPolling] = useState(true);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({});
 
@@ -64,62 +52,22 @@ function UserTables() {
     return () => clearInterval(interval);
   }, []);
 
-  const poll = useCallback(async () => {
-    try {
-      const response = await fetch("/api/get_all_containers_admin/", {
-        method: "GET",
-        credentials: "include",
-      });
-
-      if (!response.ok)
-        throw new Error(`HTTP error! status: ${response.status}`);
-
-      const { data } = await response.json();
-
-      const organized: userInfo[] = data.flatMap((user: any) =>
-        user.containers.map((container: any) => ({
-          name: user.username,
-          con_name: container.name,
-          con_status: container.status,
-          con_id: container.container_id ?? "",
-          started_at: container.started_at ?? null,
-          max_runtime_seconds: container.max_runtime_seconds ?? 86400,
-        })),
-      );
-
-      const now = Date.now();
-      organized.forEach((row) => {
-        const key = `${row.name}-${row.con_name}`;
-        if (row.con_status === "RUN" && !(key in runSinceRef.current)) {
-          const startedMs = row.started_at ? Date.parse(row.started_at) : now;
-          runSinceRef.current[key] = Number.isFinite(startedMs)
-            ? startedMs
-            : now;
-        }
-        if (row.con_status !== "RUN") {
-          delete runSinceRef.current[key];
-        }
-      });
-
-      setData(organized);
-    } catch {
-      console.log("Failed to fetch Container Data");
-    }
-  }, []);
-
+  // Sync runSinceRef when data changes
   useEffect(() => {
-    const handle = () => setIsPolling(!document.hidden);
-    document.addEventListener("visibilitychange", handle);
-    return () => document.removeEventListener("visibilitychange", handle);
-  }, []);
+    const now = Date.now();
+    data.forEach((row) => {
+      const key = `${row.name}-${row.con_name}`;
+      if (row.con_status === "RUN" && !(key in runSinceRef.current)) {
+        const startedMs = row.started_at ? Date.parse(row.started_at) : now;
+        runSinceRef.current[key] = Number.isFinite(startedMs) ? startedMs : now;
+      }
+      if (row.con_status !== "RUN") {
+        delete runSinceRef.current[key];
+      }
+    });
+  }, [data]);
 
-  useEffect(() => {
-    poll();
-    if (!isPolling) return;
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
-  }, [isPolling, poll]);
-
+  // Auto-expand new users
   useEffect(() => {
     if (!data.length) return;
     const grouped = groupByUser(data);
@@ -150,21 +98,7 @@ function UserTables() {
     const key = `${row.name}-${row.con_name}`;
     setLoadingKeys((prev) => ({ ...prev, [key]: true }));
     try {
-      const response = await fetch(`/api/stop_container/${row.con_id}/`, {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          "Content-Type": "application/json",
-          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-        },
-      });
-      if (response.ok) {
-        await poll();
-      } else {
-        console.error("Stop failed", await response.json());
-      }
-    } catch (err) {
-      console.error("Stop error", err);
+      await onStop(row);
     } finally {
       setLoadingKeys((prev) => ({ ...prev, [key]: false }));
     }

@@ -5,9 +5,6 @@ import socket
 import docker 
 import time
 import uuid
-import os
-import yaml
-from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
 from django.shortcuts import get_object_or_404, render
@@ -16,22 +13,13 @@ from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout 
 from django.views.decorators.http import require_http_methods 
 from django.contrib.auth.decorators import login_required 
-from django.views.decorators.csrf import csrf_exempt, ensure_csrf_cookie # REMOVE THIS LATER
+from django.views.decorators.csrf import ensure_csrf_cookie 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.core.paginator import Paginator
 from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
-from .catalog import APP_CATALOG
-
-# Where the YAML files are stored
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-YAML_DIR = os.path.join(CURRENT_DIR, "tmp")
-
-# Ensure the directory exists when Django starts
-if not os.path.exists(YAML_DIR):
-    os.makedirs(YAML_DIR)
 
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
@@ -39,7 +27,7 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-MAX_CONTAINERS = 10
+MAX_CONTAINERS = 4
 CONTAINER_MEM_LIMIT = "512m"
 CONTAINER_CPU_PERIOD = 100000
 CONTAINER_CPU_QUOTA = 50000
@@ -155,7 +143,6 @@ def register_user(request):
 
 @require_http_methods(["POST"])
 #@ensure_csrf_cookie
-@csrf_exempt
 def login_user(request):
     #logs in a user
     try:
@@ -189,53 +176,42 @@ def logout_user(request):
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 
 @login_required
-# HACK: Modified this file to respond with role info.
 def current_user(request):
     profile = getattr(request.user, 'profile', None)
-    org_info = None
-    if profile and profile.organization:
-        org_info = {
-            "name": profile.organization.name,
-            "code": profile.organization.org_code
-        }
-
+    org = profile.organization if profile else None
+    
     return JsonResponse({
         "username": request.user.username,
         "role": profile.role if profile else "STUDENT",
-        "organization": org_info
-    }) 
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "org_code": org.org_code,
+        } if org else None
+    })
 
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
+    #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
-    container_data = []
-    max_runtime = timedelta(hours=24)
-    max_runtime_seconds = int(max_runtime.total_seconds())
+    user_id_str = str(request.user.id)
 
     try:
-        # Loop through the Compose Projects the DB thinks are running
-        db_containers = Container.objects.filter(user=request.user, status="RUN")
-        
-        for db_c in db_containers:
-            project_name = db_c.docker_container_id
-            
-            # Compose names the primary service container: <project_name>-web-1
-            web_container_name = f"{project_name}-web-1"
-            
-            try:
-                c = client.containers.get(web_container_name)
-            except docker.errors.NotFound:
-                continue # Skip if the container died but the DB still says RUN
-            
+        user_containers = client.containers.list(all=True, filters={"label": f"wadt.user_id={user_id_str}", "status": "running"})
+        container_data = []
+        max_runtime = timedelta(hours=24)
+        max_runtime_seconds = int(max_runtime.total_seconds())
+        for c in user_containers:
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
+            db_container = Container.objects.filter(docker_container_id=c.short_id, user=request.user).first()
+            custom_name = db_container.name if db_container else c.name
             uptime_str = None
             time_left_str = None
             started_at_iso = None
-            
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
                 started_at = parse_datetime(started_at_str)
@@ -246,7 +222,6 @@ def get_containers(request):
                     hours, remainder = divmod(uptime.seconds, 3600)
                     minutes, seconds = divmod(remainder, 60)
                     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
-                    
                     time_left = max_runtime - uptime
                     if time_left > timedelta(0):
                         days = time_left.days
@@ -255,157 +230,84 @@ def get_containers(request):
                         time_left_str = f"{days}d {hours}h {minutes}m {seconds}s"
                     else:
                         time_left_str = "Expired"
-
-            # Construct the readable URL directly from the project name
-            app_domain = config("APP_DOMAIN", default="localhost")
-            protocol = "http" if app_domain == "localhost" else "https"
-
-            # 2. State Machine Logic
-            is_ready = True
-            if db_c.status == "STARTING":
-                # Quick probe to see if it finished starting while we weren't looking
-                if _probe_traefik_host(f"{project_name}.{app_domain}") and _probe_traefik_host(f"terminal.{project_name}.{app_domain}"):
-                    db_c.status = "RUN"
-                    db_c.save()
-                else:
-                    is_ready = False
-
-            # 3. Withhold URLs if not ready
-            if is_ready:
-                external_url = f"{protocol}://{project_name}.{app_domain}"
-                terminal_url = f"{protocol}://terminal.{project_name}.{app_domain}"
-                frontend_status = "running"
-            else:
-                external_url = None
-                terminal_url = None
-                frontend_status = "starting"
-
             container_data.append({
-                "id": project_name,
-                "name": db_c.name,
+                "id": c.short_id,
+                "name": custom_name,
                 "image": image_tag,
-                "status": frontend_status, # Let React know it's starting
-                "external_url": external_url,
-                "terminal_url": terminal_url,
+                "status": c.status,
+                "external_url": get_container_url(request, c),
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
                 "time_left": time_left_str
             })
-            
         return JsonResponse(container_data, safe=False)
-    except Exception as e:
-        print(f"Error in get_containers: {e}")
-        return JsonResponse({"error": "Failed to fetch containers"}, status=500)
+    except APIError:
+         return JsonResponse({"error": "Failed to fetch containers"}, status=500)
     finally:
         client.close()
 
 @require_http_methods(["POST"])
 @login_required
 def start_container(request):
+    client = get_docker_client()
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
         body = json.loads(request.body)
-        
-        # We now look up the app using the key from catalog.py (e.g., "pygoat")
-        app_key = body.get('app_key') 
+        image_name = body.get('imageName')
 
-        if app_key not in APP_CATALOG:
-            return JsonResponse({"error": "Unauthorized or unknown application requested."}, status=403)
+        if image_name not in ALLOWED_VULN_IMAGES:
+            return JsonResponse({"error": "Unauthorized image requested."}, status=403)
 
-        app_name = body.get('name', app_key) # Custom name from user, defaults to app_key
+        app_name = body.get('name')
         user_id_str = str(request.user.id)
-        app_info = APP_CATALOG[app_key]
 
-        # 1. Database & Quota Check
         db_container, created = Container.objects.get_or_create(
             user=request.user,
             name=app_name,
             defaults={
-                'description': f"Sandbox for {app_key}",
+                'description': f"Sandbox for {image_name}",
                 'status': "CREAT",
-                'docker_container_id': "" # This now stores the Compose Project Name
+                'docker_container_id': ""
             }
         )
+
+        docker_container = None
+        if db_container.docker_container_id:
+            try:
+                docker_container = client.containers.get(db_container.docker_container_id)
+            except docker.errors.NotFound:
+                docker_container = None
+
+        if docker_container:
+            if docker_container.status != "running":
+                docker_container.restart()
+            db_container.status = "RUN"
+            db_container.save()
+            return JsonResponse({"status": "success", "id": docker_container.short_id})
 
         other_containers_count = Container.objects.filter(user=request.user).exclude(name=app_name).count()
         if other_containers_count >= MAX_CONTAINERS:
              return JsonResponse({"error": "Quota exceeded."}, status=429)
 
-        # 2. Generate Project Details
-        # If it already has a project name, reuse it; otherwise, generate a new one
-        existing_id = db_container.docker_container_id
-        
-        if existing_id and existing_id.startswith(f"wadt-user{request.user.id}-{app_key}"):
-            project_name = existing_id
-        else:
-            unique_id = str(uuid.uuid4())[:6]
-            project_name = f"wadt-user{request.user.id}-{app_key}-{unique_id}"
-            db_container.docker_container_id = project_name
-
-        file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
-        network_name = f"{project_name}_default"
-        app_domain = config("APP_DOMAIN", default="localhost")
-
-        # 3. Build the YAML Dictionary
-        compose_dict = {"services": {}}
-        
-        # Build the vulnerable web app service
-        app_port = app_info.get("port", "80")
-        router_rule = f"Host(`{project_name}.{app_domain}`)"
-        
-        compose_dict["services"]["web"] = {
-            "image": app_info["image"],
-            "networks": ["default"],
-            "labels": {
-                "traefik.enable": "true",
-                f"traefik.http.routers.{project_name}.rule": router_rule,
-                f"traefik.http.routers.{project_name}.entrypoints": "web",
-                f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
-                "traefik.docker.network": network_name,
-                "wadt.user_id": user_id_str # Keep tracking the user
-            }
-        }
-
-        # Add optional fields if they exist in the catalog
-        if "environment" in app_info: compose_dict["services"]["web"]["environment"] = app_info["environment"]
-        if "cap_add" in app_info: compose_dict["services"]["web"]["cap_add"] = app_info["cap_add"]
-
-        # Build the Attacker Terminal service
-        terminal_info = APP_CATALOG["attacker-terminal"]
-        compose_dict["services"]["attacker"] = {
-            "image": terminal_info["image"],
-            "command": terminal_info["command"],
-            "networks": ["default"],
-            "labels": {
-                "traefik.enable": "true",
-                f"traefik.http.routers.{project_name}-terminal.rule": f"Host(`terminal.{project_name}.{app_domain}`)",
-                f"traefik.http.routers.{project_name}-terminal.entrypoints": "web",
-                f"traefik.http.services.{project_name}-terminal.loadbalancer.server.port": terminal_info["port"],
-                "traefik.docker.network": network_name
-            }
-        }
-
-        # 4. Save YAML to Disk
-        with open(file_path, 'w') as f:
-            yaml.dump(compose_dict, f)
-
-        # 5. Execute Docker Compose
-        custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-        custom_docker.compose.up(detach=True)
-
-        # 6. Bridge Traefik to the new isolated network
-        os.system(f"docker network connect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
-
-        # 7. Update Database
-        db_container.status = "STARTING"
+        client.images.pull(image_name)
+        unique_id = str(uuid.uuid4())[:6] #generates the url-safe container name
+        explicit_name = f"wadt-user{request.user.id}-{unique_id}"
+        config = get_secure_container_config(user_id_str, explicit_name)
+        new_container = client.containers.run(image_name, name=explicit_name, **config)
+ 
+        db_container.docker_container_id = new_container.short_id
+        db_container.status = "RUN"
         db_container.save()
-        log_user_action(request.user, f"Deployed composed project '{db_container.name}'", db_container)
+        log_user_action(request.user, f"Started container '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "id": project_name}, status=201)
+        return JsonResponse({"status": "success", "id": new_container.short_id}, status=201)
         
     except Exception as e:
-        print(f"Deployment Error: {str(e)}")
-        return JsonResponse({"error": "Failed to deploy application stack."}, status=500)
+        return JsonResponse({"error": str(e)}, status=500)
+    finally:
+        client.close()
 
 def _get_user_container(client, user, container_id):
     try:
@@ -413,41 +315,6 @@ def _get_user_container(client, user, container_id):
         
         if container.labels.get("wadt.user_id") != str(user.id):
             return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        user_profile = getattr(user, 'profile', None)
-        user_role = user_profile.role if user_profile else 'STUDENT'
-
-        if user_role not in ['ADMIN', 'SUPER']:
-            if container.labels.get("wadt.user_id") != str(user.id):
-                return None, JsonResponse({"error": "Unauthorized"}, status=403)
-
         return container, None
     except NotFound:
         return None, JsonResponse({"error": "Container not found"}, status=404)
@@ -455,68 +322,60 @@ def _get_user_container(client, user, container_id):
 @require_http_methods(["POST"])
 @login_required
 def stop_container(request, container_id):
-    # container_id is now our Compose Project Name (e.g., wadt-user2-grafana-69ba3a)
+    client = get_docker_client()
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)
+    
     try:
+        container, error_response = _get_user_container(client, request.user, container_id)
+        if error_response: 
+            return error_response
+
+        container.stop()
+
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
-    except Container.DoesNotExist:
-        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
-
-    project_name = db_container.docker_container_id
-    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
-    network_name = f"{project_name}_default"
-
-    try:
-        # 1. Evict Traefik (silent fail if already gone)
-        os.system(f"docker network disconnect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
-
-        # 2. Docker Compose Down
-        if os.path.exists(file_path):
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            # 'v' removes volumes, 'orphans' cleans up the attacker terminal
-            custom_docker.compose.down(volumes=True, remove_orphans=True)
-            os.remove(file_path) # Clean up the tmp YAML file
-
-        # 3. Update DB
         db_container.status = "STOP"
         db_container.save()
-        log_user_action(request.user, f"Stopped and removed composed project '{db_container.name}'", db_container)
+        log_user_action(request.user, f"Stopped container '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "message": f"Project {project_name} stopped."})
+        return JsonResponse({"status": "success", "message": f"Container {container_id} stopped."})
     except Exception as e:
         print(f"Error in stop_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred while stopping."}, status=500)
+        return JsonResponse({"error": "An internal error occured."}, status=500)
+    finally:
+        client.close()
     
 @require_http_methods(["POST"])
 @login_required
 def restart_container(request, container_id):
+    #used if somebody needs to refresh container to apply changes
+    client = get_docker_client()
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)
     try:
+        container, error_response = _get_user_container(client, request.user, container_id)
+        if error_response: 
+            return error_response
+
+        container.restart()
+
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
-    except Container.DoesNotExist:
-        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
-
-    project_name = db_container.docker_container_id
-    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
-
-    try:
-        if os.path.exists(file_path):
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            custom_docker.compose.restart()
-        else:
-            return JsonResponse({"error": "YAML configuration missing. Cannot restart."}, status=404)
-
-        db_container.status = "STARTING"
+        db_container.status = "RUN"
         db_container.save()
-        log_user_action(request.user, f"Restarted composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "message": f"Project {project_name} restarted."})
+        log_user_action(request.user, f"Refreshed container '{db_container.name}'", db_container)
+
+        return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
     except Exception as e:
         print(f"Error in restart_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred while restarting."}, status=500)
+        return JsonResponse({"error": "An internal error occured."}, status=500)
+    finally:
+        client.close()
 
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
-    client = docker.from_env()
+    client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
     
@@ -565,7 +424,6 @@ def reset_container(request, container_id):
 
 @require_http_methods(["POST"])
 @login_required
-@csrf_exempt
 def request_teacher_status(request):
     profile = request.user.profile
     if profile.role in ['ADMIN', 'SUPER']:
@@ -582,37 +440,11 @@ def request_teacher_status(request):
         "message": "Teacher status requested. Awaiting approval."
     })
 
-'''
-# Add to views.py or create a utils.py file
-def check_user_role(request, allowed_roles):
-    """Check if user has one of the allowed roles.
-    
-    Args:
-        request: Django request object
-        allowed_roles: List of allowed role strings ['ADMIN', 'SUPER']
-    
-    Returns:
-        tuple: (is_authorized, user_role)
-    """
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    is_authorized = user_role in allowed_roles
-    return is_authorized, user_role
-
-# Usage example:
-is_authorized, user_role = check_user_role(request, ['ADMIN', 'SUPER'])
-if not is_authorized:
-    return JsonResponse({"error": "Unauthorized access."}, status=403)
-'''
-
-
 @require_http_methods(["GET"])
 @login_required
 def get_pending_teachers(request):
-    # HACK: REPLACE THIS WITH PROPER ROLE CHECKING
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['SUPER', 'ADMIN',]:  # Allow ADMIN for testing
-        if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
-            return JsonResponse({"error": "Unauthorized access."}, status=403)
+    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+        return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
     
@@ -626,9 +458,7 @@ def get_pending_teachers(request):
 
 @require_http_methods(["POST"])
 @login_required
-
-# HACK: Set target_user_id = 2 for testing, undo this when done
-def approve_teacher(request, target_user_id): 
+def approve_teacher(request, target_user_id):
     if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
@@ -658,7 +488,7 @@ def approve_teacher(request, target_user_id):
 @login_required
 def create_organization(request):
     user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['ADMIN', 'SUPER', 'STUDENT']: # HACK: Allowing STUDENTS TO AS WELL FOR TESTING
+    if user_role not in ['ADMIN', 'SUPER']:
         return JsonResponse({
             "error": "Unauthorized. Only approved Teachers and Admins can create organizations."
         }, status=403)
@@ -682,7 +512,8 @@ def create_organization(request):
             "status": "success",
             "message": f"Organization '{new_org.name}' created successfully.",
             "org_code": new_org.org_code,
-            "organization_name": new_org.name
+            "organization_name": new_org.name,
+            "org_id": new_org.id
         }, status=201)
 
     except json.JSONDecodeError:
@@ -748,15 +579,73 @@ def leave_organization(request):
         print(f"Error in leave_organization: {str(e)}")
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
 
+@require_http_methods(["POST", "DELETE"])
+@login_required
+def delete_organization(request, org_id):
+    profile = getattr(request.user, 'profile', None)
+
+    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = get_object_or_404(Organization, id=org_id)
+        if profile.role == 'ADMIN' and profile.organization != org:
+            return JsonResponse({"error": "You can only delete an organization you own."}, status=403)
+        org_name = org.name
+        org.delete()
+        log_user_action(request.user, f"Deleted organization '{org_name}'")
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Organization '{org_name}' has been deleted."
+        })
+
+    except Exception as e:
+        print(f"Error in delete_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["GET"])
+@login_required
+def get_organization_stats(request):
+    profile = getattr(request.user, 'profile', None)
+    
+    if not profile or profile.role not in ['ADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = profile.organization
+
+        if profile.role == 'SUPER' and not org:
+            member_count = UserProfile.objects.count()
+            container_count = Container.objects.count()
+            org_name = "All users"
+        
+        elif org:
+            member_count = UserProfile.objects.filter(organization=org).count()
+            container_count = Container.objects.filter(organization=org).count()
+            org_name = org.name
+            
+        else:
+            return JsonResponse({"error": "You are not assigned to an organization."}, status=400)
+
+        return JsonResponse({
+            "status": "success",
+            "organization_name": org_name,
+            "member_count": member_count,
+            "container_count": container_count
+        })
+
+    except Exception as e:
+        print(f"Error in get_organization_stats: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
 @require_http_methods(["GET"])
 @login_required
 def get_container_logs(request, container_id):
-    # container_id is now the Compose Project Name
     container_record = get_object_or_404(Container, docker_container_id=container_id)
-    
-    # ... (Keep all your existing authorization checks here) ...
     user_profile = getattr(request.user, 'profile', None)
     user_role = user_profile.role if user_profile else 'STUDENT'
+
     is_authorized = False
     if user_role == 'SUPER':
         is_authorized = True 
@@ -770,7 +659,6 @@ def get_container_logs(request, container_id):
 
     unified_logs = []
 
-    # 1. Fetch System/Action Logs
     action_logs = ActionLog.objects.filter(container=container_record).order_by('-timestamp')[:50]
     for alog in action_logs:
         unified_logs.append({
@@ -782,46 +670,34 @@ def get_container_logs(request, container_id):
     client = get_docker_client()
     if client:
         try:
-            # 2. Fetch Web App Logs
-            try:
-                web_container = client.containers.get(f"{container_id}-web-1")
-                raw_logs = web_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
-                
-                noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or any(noise in line for noise in noise_filters): continue
-                    parts = line.split(' ', 1)
-                    if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "APP", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass # Container might be dead, that's fine
+            docker_container = client.containers.get(container_id)
+            raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
+            log_lines = raw_logs.decode('utf-8').split('\n')
 
-            # 3. Fetch Terminal Logs
-            try:
-                term_container = client.containers.get(f"{container_id}-attacker-1")
-                raw_logs = term_container.logs(stdout=True, stderr=True, timestamps=True, tail=50)
-                
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or "ttyd" in line: continue # Filter out ttyd noise
-                    parts = line.split(' ', 1)
-                    if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "TERMINAL", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass
+            noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
 
+            for line in log_lines:
+                if not line.strip(): continue
+                if any(noise in line for noise in noise_filters): continue
+
+                parts = line.split(' ', 1)
+                if len(parts) == 2:
+                    unified_logs.append({
+                        "timestamp": parts[0], 
+                        "source": "CONTAINER",
+                        "message": parts[1]    
+                    })
         except Exception as e:
             print(f"Docker log error: {e}")
         finally:
             client.close()
 
-    # Sort everything by timestamp so it flows perfectly chronologically
     unified_logs.sort(key=lambda x: x['timestamp'])
 
     return JsonResponse({"status": "success", "logs": unified_logs})
 
 @require_http_methods(["GET"])
 @login_required
-@csrf_exempt
 def get_all_containers_admin(request):
     user_profile = getattr(request.user, 'profile', None)
     if not user_profile:
@@ -889,44 +765,33 @@ def get_all_containers_admin(request):
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):
+    client = get_docker_client()
+    if not client:
+        return JsonResponse({"error": "Docker client not available"}, status=503)
+    
     try:
-        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
-    except Container.DoesNotExist:
-        return JsonResponse({"error": "Unauthorized"}, status=403)
+        docker_container, error_response = _get_user_container(client, request.user, container_id)
+        if error_response:
+            return error_response
 
-    app_domain = config("APP_DOMAIN", default="localhost")
-    hostname = f"{container_id}.{app_domain}"
-    terminal_hostname = f"terminal.{hostname}" # Define the terminal hostname
+        if docker_container.status != "running":
+            return JsonResponse({"ready": False})
 
-    # 1. The Traefik Probes
-    # Check BOTH the main app and the terminal
-    app_is_ready = _probe_traefik_host(hostname)
-    terminal_is_ready = _probe_traefik_host(terminal_hostname)
+        app_domain = config("APP_DOMAIN", default="localhost")
+        protocol = "http" if app_domain == "localhost" else "https"
+        hostname = f"{docker_container.name}.{app_domain}"
+        subdomain_url = f"{protocol}://{hostname}"
 
-    # If EITHER of them is still throwing a 502 Bad Gateway, keep spinning!
-    if not (app_is_ready and terminal_is_ready):
-        return JsonResponse({"ready": False})
+        # Backend readiness: only mark ready when Traefik can reach this host
+        is_ready = _probe_traefik_host(hostname)
 
-    # 2. Determine the specific landing page for the "Open App" button
-    app_path = "/"
-    for key, info in APP_CATALOG.items():
-        if f"-{key}-" in container_id:
-            app_path = info.get("path", "/")
-            break
-
-    # 3. Construct the final exact URLs
-    protocol = "http" if app_domain == "localhost" else "https"
-    final_url = f"{protocol}://{hostname}{app_path}"
-    terminal_url = f"{protocol}://{terminal_hostname}" 
-
-    db_container.status = "RUN"
-    db_container.save()
-
-    return JsonResponse({
-        "ready": True,
-        "url": final_url,
-        "terminal_url": terminal_url
-    })
+        return JsonResponse({
+            "ready": is_ready,
+            "url": subdomain_url if is_ready else None
+        })
+            
+    finally:
+        client.close()
 
 def log_user_action(user, action_message, container=None):
     try:
@@ -938,10 +803,7 @@ def log_user_action(user, action_message, container=None):
     except Exception as e:
         print(f"Failed to write audit log: {e}")
 
-    
-
 @require_http_methods(["GET"])
 @ensure_csrf_cookie
 def get_csrf_token(request):
     return JsonResponse({"csrfToken": get_token(request)})
-

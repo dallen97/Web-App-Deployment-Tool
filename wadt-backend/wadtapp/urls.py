@@ -26,5 +26,6 @@ urlpatterns = [
     path('check_container_ready/<str:container_id>/', views.check_container_ready, name='check_container_ready'),
     path('get_container_logs/<str:container_id>/', views.get_container_logs, name='get_container_logs'),
     path('get_all_containers_admin/', views.get_all_containers_admin, name='get_all_containers_admin'),
-    # path('check_user_role', views.check_user_role, name="check_user_role"),
+    path('organization_stats/', views.get_organization_stats, name='get_organization_stats'),
+    path('delete_organization/<int:org_id>/', views.delete_organization, name='delete_organization'),
 ]

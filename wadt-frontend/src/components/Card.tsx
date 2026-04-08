@@ -49,7 +49,10 @@ const Cards: React.FC<CardsProps> = ({
           className="mb-2"
         >
           <Card.Body className="containers_card">
-            <Card.Header className="card_header d-flex justify-content-center align-center">
+            <Card.Header
+              className="card_header d-flex justify-content-center align-center"
+              style={{ background: "transparent", border: "none" }}
+            >
               {header}
             </Card.Header>
             <Card.Title style={{ textAlign: "center" }}>
@@ -58,19 +61,7 @@ const Cards: React.FC<CardsProps> = ({
             <Card.Subtitle className="mb-2 text-muted">
               {subtitle}
             </Card.Subtitle>
-            <Card.Text
-              style={{
-                fontSize: "1.5rem",
-                textAlign: "center",
-                marginTop: "5px",
-                display: "flex",
-                flexDirection: "column",
-                justifyContent: "center",
-                alignItems: "center",
-                fontWeight: "800",
-                color: "white",
-              }}
-            >
+            <Card.Text className="small_text" style={{ textAlign: "center" }}>
               <strong>{text}</strong>
             </Card.Text>
           </Card.Body>

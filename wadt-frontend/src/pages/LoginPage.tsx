@@ -123,6 +123,7 @@ function LoginPage() {
       } else {
         const errorData = data as LoginErrorResponse;
         setError(errorData.error);
+        return;
       }
 
       const userResponse = await fetch("/api/current_user/", {
@@ -141,7 +142,6 @@ function LoginPage() {
       } else {
         console.error("Failed to fetch user data");
         // Default to dashboard if we can't determine role
-        navigate("/dashboard");
       }
     } catch (err) {
       console.error("Login error:", err);
