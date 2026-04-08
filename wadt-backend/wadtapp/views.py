@@ -36,10 +36,10 @@ ALLOWED_VULN_IMAGES = [
     "pygoat/pygoat",
     "bkimminich/juice-shop",
     "grafana/grafana:8.3.0",
-    "vulnerables/web-dvwa"
-    "tiredful-api"
-    "shellshock"
-    "apache-struts"
+    "vulnerables/web-dvwa",
+    "tiredful-api",
+    "shellshock",
+    "apache-struts",
 ]
 
 def get_secure_container_config(user_id_str, container_name):
@@ -258,7 +258,8 @@ def start_container(request):
         return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
         body = json.loads(request.body)
-        image_name = body.get('imageName')
+        app_key = body.get("app_key")  
+        image_name = app_key
 
         if image_name not in ALLOWED_VULN_IMAGES:
             return JsonResponse({"error": "Unauthorized image requested."}, status=403)
