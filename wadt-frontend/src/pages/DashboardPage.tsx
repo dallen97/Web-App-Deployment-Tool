@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import Docker from "../components/Docker";
 import Footer from "../components/Footer";
-import { Container, Row, Col, Button } from "react-bootstrap"
+import Header from "../components/Header";
+import { Container, Row, Col, Button, } from "react-bootstrap";
+import {Link} from "react-router-dom";
 
 /*
   Things to add:
@@ -66,9 +68,17 @@ function DashboardContent() {
     return () => clearInterval(interval);
   }, []);
 
+
   return (
-     <div className="d-flex flex-column min-vh-100">    
+     <div className="d-flex flex-column min-vh-100">   
+     <Header
+      buttons={[
+          { link: "#", text: `Welcome, ${username}`, isText: true },
+          { link: "/login/", text: "Logout" }
+      ]}
+      align="left"/>
       <main className="flex-grow-1">
+        {/**
         <Container
           className="mx-auto"
           style={{ marginTop: "50px" , textAlign: "center"}}
@@ -76,6 +86,7 @@ function DashboardContent() {
           <h1>Welcome {username}</h1>
           <p>Not you? <a href="/login/">Logout</a></p>
         </Container>
+        */}
 
         <Container style={{ marginTop: "50px"}}>
           <Row>
@@ -131,7 +142,9 @@ function DashboardContent() {
                   <ul className="list-unstyled">
                     {containers.map((container, index) => (
                       <li key={index} className="mb-3">
-                        <strong>{container.name}</strong><br/>
+                        <strong>{container.name} </strong>
+                        <Link to= {`/logs/${container.id}`}> <strong> View Logs</strong></Link>
+                        <br/>
                         {container.started_at ? (
                           (() => {
                             const startedMs = Date.parse(container.started_at);
@@ -165,7 +178,8 @@ function DashboardContent() {
             
           </Row>
         </Container>
-      </main>      
+      </main> 
+        <Footer></Footer>
     </div>
   );
 }

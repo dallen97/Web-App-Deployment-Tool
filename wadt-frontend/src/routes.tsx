@@ -39,11 +39,11 @@ const router = createBrowserRouter([
     element: <Account />,
   },
 
-  // Logs page
-  {
-    path: "/logs",
-    element: <LogPage />,
-  }
+  // Log page
+{
+  path: "/logs/:id",
+  element: <LogPage />,
+}
 ]);
 
 export default router;
