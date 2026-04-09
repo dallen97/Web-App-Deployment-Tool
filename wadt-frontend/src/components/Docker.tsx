@@ -86,7 +86,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
           if (c.external_url) {
             setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
-            setTerminalUrls((prev) => ({ ...prev, [c.name]: c.terminal_url as string }));
+            setTerminalUrls((prev) => ({ ...prev, [c.name]: (c.terminal_url ?? "") as string }));
             setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
           } else if (c.status === "starting" || c.status === "running") {
             // It's still starting, keep the spinner going
@@ -172,10 +172,45 @@ const Docker = ({ docker = [] }: DockerList) => {
         const data = await response.json();
 
         if (data.ready) {
-          console.log("Container is officially ready at:", data.url);
           clearInterval(intervalId); // Stop checking
-          setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
-          setTerminalUrls((prev) => ({ ...prev, [containerName]: data.terminal_url }));
+          
+          // Same URLs as the logs page: always from get_containers (not check_container_ready JSON).
+          try {
+            const rc = await fetch("/api/get_containers/", {
+              method: "GET",
+              credentials: "include",
+            });
+            if (rc.ok) {
+              const list = (await rc.json()) as Array<{
+                id: string;
+                name: string;
+                external_url: string | null;
+                terminal_url: string | null;
+              }>;
+              const row = list.find((x) => x.id === containerId);
+              if (row?.external_url) {
+                setContainerUrls((prev) => ({
+                  ...prev,
+                  [containerName]: row.external_url as string,
+                }));
+                setTerminalUrls((prev) => ({
+                  ...prev,
+                  [containerName]: (row.terminal_url ?? "") as string,
+                }));
+                console.log("Container is officially ready at:", row.external_url);
+                setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
+                window.dispatchEvent(new Event("wadt:containers-changed"));
+                return;
+              }
+            }
+          } catch {
+            /* fall through */
+          }
+          const appUrl = (data.url as string) ?? "";
+          const termUrl = (data.terminal_url as string | undefined) ?? "";
+          setContainerUrls((prev) => ({ ...prev, [containerName]: appUrl }));
+          setTerminalUrls((prev) => ({ ...prev, [containerName]: termUrl }));
+
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
           window.dispatchEvent(new Event("wadt:containers-changed"));
         }
