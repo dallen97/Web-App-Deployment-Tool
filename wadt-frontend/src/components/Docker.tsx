@@ -303,7 +303,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                     <>
                     <Button
                       variant="success"
-                      onClick={() => handleView(d.appKey)}
+                      onClick={() => handleView(d.name)}
                       style={{ marginLeft: "10px" }}
                     >
                       Open App
