@@ -19,7 +19,6 @@ def setup_secure_network():
             name=network_name,
             driver="bridge",
             options={
-                "com.docker.network.bridge.enable_icc": "false",
                 "com.docker.network.bridge.name": "wadt_br0" 
             }
         )

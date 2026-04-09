@@ -49,4 +49,14 @@ APP_CATALOG = {
         "image": "tuxotron/tiredful-api",
         "port": "8000"
     },
+    # ⭐ NEW ENTRIES
+    "cvwa": {
+        "image": "convisolabs/cvwa:latest",
+        "port": "8080"
+    },
+
+    "ghostkit-lab": {
+        "image": "yourdockerhub/ghostkit-lab:latest",
+        "port": "9090"
+    }
 }
