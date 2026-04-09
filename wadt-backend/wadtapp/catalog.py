@@ -5,7 +5,8 @@ APP_CATALOG = {
     },
     "juice-shop": {
         "image": "bkimminich/juice-shop:latest",
-        "port": "3000"
+        "port": "3000",
+        "path": "/#",
     },
     "grafana": {
         "image": "grafana/grafana:8.3.0",  
@@ -22,21 +23,14 @@ APP_CATALOG = {
         "port": "8080"
     },
     "attacker-terminal": {
-        "image": "kalilinux/kali-rolling:latest",
-               # Exit 126 on EC2 amd64: old catalog used ttyd.aarch64 (ARM only). Pick binary from `uname -m`.
-        "command": (
-            'bash -c "set -e; apt-get update && apt-get install -y nmap curl iputils-ping; '
-            "ARCH=$$(uname -m); "
-            "case $$ARCH in x86_64|amd64) T=ttyd.x86_64 ;; aarch64|arm64) T=ttyd.aarch64 ;; *) T=ttyd.x86_64 ;; esac; "
-            "curl -fL https://github.com/tsl0922/ttyd/releases/download/1.7.7/$${T} -o /usr/local/bin/ttyd && "
-            'chmod +x /usr/local/bin/ttyd && exec ttyd -W bash"'
-        ),
+        "image": "wadt-attacker:latest",
         "port": "7681",
+        "command": "ttyd -W bash",
         "labels": {
             "traefik.enable": "true",
             "traefik.http.routers.attacker.rule": "Host(`terminal.localhost`)",
             "traefik.http.services.attacker.loadbalancer.server.port": "7681"
-        }
+         }
     },
     "shellshock": {
         "image": "vulnerables/cve-2014-6271",
