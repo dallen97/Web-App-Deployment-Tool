@@ -6,9 +6,8 @@ import docker
 import time
 import uuid
 import os
-import yaml
 import threading
-from yaml.representer import SafeRepresenter
+import yaml
 from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -42,28 +41,15 @@ CONTAINER_READINESS_TIMEOUT = 2
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
 
-class _ComposeYamlDumper(yaml.SafeDumper):
-    """Compose needs literal $$ in the file; YAML 1.1 double-quoted scalars fold $$ into one $."""
 
+def _lab_url_scheme() -> str:
+    """Scheme for Traefik-routed lab URLs. Default http unless USE_TLS is explicitly truthy.
 
-def _compose_str_representer(dumper, data):
-    if isinstance(data, str) and ("bash -c" in data or "$$" in data):
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
-    return SafeRepresenter.represent_str(dumper, data)
-
-
-_ComposeYamlDumper.add_representer(str, _compose_str_representer)
-
-
-def _dump_compose_yaml(compose_dict, stream):
-    yaml.dump(
-        compose_dict,
-        stream,
-        Dumper=_ComposeYamlDumper,
-        default_flow_style=False,
-        allow_unicode=True,
-        width=10_000,
-    )
+    Avoid config(..., cast=bool): some env sources make bool coercion surprising.
+    """
+    raw = str(config("USE_TLS", default="false")).strip().lower()
+    use_tls = raw in ("1", "true", "yes", "on")
+    return "https" if use_tls else "http"
 
 MAX_CONTAINERS = 10
 CONTAINER_MEM_LIMIT = "512m"
@@ -94,6 +80,16 @@ def get_secure_container_config(user_id_str, container_name):
         "security_opt": ["no-new-privileges:true"],
         "network": "wadt_sandbox_network"
     }
+
+#initialize docker client
+def get_docker_client():
+    try:
+        client = docker.from_env()
+        client.ping()
+        return client
+    except Exception:
+        return None
+
 
 def _start_compose_project_async(
     user_id: int,
@@ -128,77 +124,83 @@ def _start_compose_project_async(
     finally:
         close_old_connections()
 
-#initialize docker client
-def get_docker_client():
+
+def _stop_compose_project_async(
+    user_id: int,
+    db_container_pk: int,
+    project_name: str,
+    container_name: str,
+    file_path: str,
+    network_name: str,
+):
+    """
+    Run compose down / cleanup in a background thread so /api/stop_container/ can return quickly.
+    """
+    close_old_connections()
     try:
-        client = docker.from_env()
-        client.ping()
-        return client
-    except Exception:
-        return None
+        os.system(
+            f"docker network disconnect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1"
+        )
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(
+                compose_files=[file_path], compose_project_name=project_name
+            )
+            custom_docker.compose.down(volumes=True, remove_orphans=True)
+            os.remove(file_path)
 
-def _get_traefik_container(client):
-    """
-    Find the running Traefik container created by your compose stack.
-    """
-    for c in client.containers.list():
-        name = c.name.lower()
-        if "traefik" in name:
-            return c
-    return None
-
-
-def _connect_traefik_to_network(network_name: str) -> None:
-    """
-    Ensure Traefik is attached to the given Docker network.
-    Safe to call repeatedly.
-    """
-    try:
-        client = docker.from_env()
-        traefik = _get_traefik_container(client)
-        if not traefik:
-            print("Traefik container not found; skipping network connect.")
-            return
-
-        network = client.networks.get(network_name)
-
-        # Skip if already connected
-        traefik.reload()
-        attached = traefik.attrs.get("NetworkSettings", {}).get("Networks", {})
-        if network_name in attached:
-            return
-
-        network.connect(traefik)
-        print(f"Connected Traefik to network: {network_name}")
+        db_container = Container.objects.filter(id=db_container_pk).first()
+        user = User.objects.filter(id=user_id).first()
+        if db_container:
+            db_container.status = "STOP"
+            db_container.save(update_fields=["status"])
+        if db_container and user:
+            log_user_action(
+                user,
+                f"Stopped and removed composed project '{container_name}'",
+                db_container,
+            )
     except Exception as e:
-        print(f"Failed to connect Traefik to {network_name}: {e}")
+        print(f"Async stop error for {project_name}: {e}")
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        close_old_connections()
 
 
-def _disconnect_traefik_from_network(network_name: str) -> None:
+def _restart_compose_project_async(
+    user_id: int,
+    db_container_pk: int,
+    project_name: str,
+    container_name: str,
+    file_path: str,
+):
     """
-    Detach Traefik from a project network during teardown.
+    Run compose restart in a background thread so /api/restart_container/ can return quickly.
     """
+    close_old_connections()
     try:
-        client = docker.from_env()
-        traefik = _get_traefik_container(client)
-        if not traefik:
+        if not os.path.exists(file_path):
+            print(f"Async restart: YAML missing for {project_name}")
             return
+        custom_docker = DockerClient(
+            compose_files=[file_path], compose_project_name=project_name
+        )
+        custom_docker.compose.restart()
 
-        network = client.networks.get(network_name)
-        network.disconnect(traefik, force=True)
-        print(f"Disconnected Traefik from network: {network_name}")
+        db_container = Container.objects.filter(id=db_container_pk).first()
+        user = User.objects.filter(id=user_id).first()
+        if db_container:
+            db_container.status = "STARTING"
+            db_container.save(update_fields=["status"])
+        if db_container and user:
+            log_user_action(
+                user,
+                f"Restarted composed project '{container_name}'",
+                db_container,
+            )
     except Exception as e:
-        print(f"Failed to disconnect Traefik from {network_name}: {e}")
+        print(f"Async restart error for {project_name}: {e}")
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        close_old_connections()
+
 
 def get_container_url(request, container):
     try:
@@ -368,8 +370,7 @@ def get_containers(request):
 
             # Construct the readable URL directly from the project name
             app_domain = config("APP_DOMAIN", default="localhost")
-            use_tls = config("USE_TLS", default=False, cast=bool)
-            protocol = "https" if use_tls else "http"
+            protocol = _lab_url_scheme()
 
             # 2. State Machine Logic
             is_ready = True
@@ -381,9 +382,14 @@ def get_containers(request):
                 else:
                     is_ready = False
 
-            # 3. Withhold URLs if not ready
+            # 3. Withhold URLs if not ready (same shape as check_container_ready, incl. catalog path)
             if is_ready:
-                external_url = f"{protocol}://{project_name}.{app_domain}"
+                app_path = "/"
+                for key, info in APP_CATALOG.items():
+                    if f"-{key}-" in project_name:
+                        app_path = info.get("path", "/")
+                        break
+                external_url = f"{protocol}://{project_name}.{app_domain}{app_path}"
                 terminal_url = f"{protocol}://terminal.{project_name}.{app_domain}"
                 frontend_status = "running"
             else:
@@ -494,13 +500,12 @@ def start_container(request):
                 "traefik.docker.network": network_name
             }
         }
-
         if "command" in terminal_info:
             compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
 
         # 4. Save YAML to Disk
         with open(file_path, 'w') as f:
-            _dump_compose_yaml(compose_dict, f)
+            yaml.dump(compose_dict, f)
 
         # 5. Mark as starting and run compose work asynchronously.
         db_container.status = "STARTING"
@@ -535,36 +540,6 @@ def _get_user_container(client, user, container_id):
     except NotFound:
         return None, JsonResponse({"error": "Container not found"}, status=404)
 
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
-def _get_user_container(client, user, container_id):
-    try:
-        container = client.containers.get(container_id)
-        
-        if container.labels.get("wadt.user_id") != str(user.id):
-            return None, JsonResponse({"error": "Unauthorized"}, status=403)
-        return container, None
-    except NotFound:
-        return None, JsonResponse({"error": "Container not found"}, status=404)
-
 @require_http_methods(["POST"])
 @login_required
 def stop_container(request, container_id):
@@ -578,26 +553,23 @@ def stop_container(request, container_id):
     file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
     network_name = f"{project_name}_default"
 
-    try:
-        # 1. Evict Traefik (silent fail if already gone)
-        _disconnect_traefik_from_network(network_name)
+    threading.Thread(
+        target=_stop_compose_project_async,
+        args=(
+            request.user.id,
+            db_container.id,
+            project_name,
+            db_container.name,
+            file_path,
+            network_name,
+        ),
+        daemon=True,
+    ).start()
 
-        # 2. Docker Compose Down
-        if os.path.exists(file_path):
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            # 'v' removes volumes, 'orphans' cleans up the attacker terminal
-            custom_docker.compose.down(volumes=True, remove_orphans=True)
-            os.remove(file_path) # Clean up the tmp YAML file
-
-        # 3. Update DB
-        db_container.status = "STOP"
-        db_container.save()
-        log_user_action(request.user, f"Stopped and removed composed project '{db_container.name}'", db_container)
-
-        return JsonResponse({"status": "success", "message": f"Project {project_name} stopped."})
-    except Exception as e:
-        print(f"Error in stop_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred while stopping."}, status=500)
+    return JsonResponse(
+        {"status": "accepted", "message": f"Stop scheduled for project {project_name}."},
+        status=202,
+    )
     
 @require_http_methods(["POST"])
 @login_required
@@ -610,21 +582,30 @@ def restart_container(request, container_id):
     project_name = db_container.docker_container_id
     file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
 
-    try:
-        if os.path.exists(file_path):
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            custom_docker.compose.restart()
-        else:
-            return JsonResponse({"error": "YAML configuration missing. Cannot restart."}, status=404)
+    if not os.path.exists(file_path):
+        return JsonResponse(
+            {"error": "YAML configuration missing. Cannot restart."}, status=404
+        )
 
-        db_container.status = "STARTING"
-        db_container.save()
-        log_user_action(request.user, f"Restarted composed project '{db_container.name}'", db_container)
+    threading.Thread(
+        target=_restart_compose_project_async,
+        args=(
+            request.user.id,
+            db_container.id,
+            project_name,
+            db_container.name,
+            file_path,
+        ),
+        daemon=True,
+    ).start()
 
-        return JsonResponse({"status": "success", "message": f"Project {project_name} restarted."})
-    except Exception as e:
-        print(f"Error in restart_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occurred while restarting."}, status=500)
+    return JsonResponse(
+        {
+            "status": "accepted",
+            "message": f"Restart scheduled for project {project_name}.",
+        },
+        status=202,
+    )
 
 @require_http_methods(["POST"])
 @login_required
@@ -998,7 +979,7 @@ def check_container_ready(request, container_id):
             break
 
     # 3. Construct the final exact URLs
-    protocol = "http" if app_domain == "localhost" else "https"
+    protocol = _lab_url_scheme()
     final_url = f"{protocol}://{hostname}{app_path}"
     terminal_url = f"{protocol}://{terminal_hostname}" 
 
