@@ -7,6 +7,7 @@ import time
 import uuid
 import os
 import yaml
+import threading
 from yaml.representer import SafeRepresenter
 from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
@@ -21,6 +22,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.core.paginator import Paginator
+from django.db import close_old_connections
 from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
@@ -92,6 +94,39 @@ def get_secure_container_config(user_id_str, container_name):
         "security_opt": ["no-new-privileges:true"],
         "network": "wadt_sandbox_network"
     }
+
+def _start_compose_project_async(
+    user_id: int,
+    container_id: int,
+    project_name: str,
+    container_name: str,
+    file_path: str,
+    network_name: str,
+):
+    """
+    Run compose startup in a background thread so /api/start_container/ can
+    return immediately and avoid proxy/client connection resets on long starts.
+    """
+    close_old_connections()
+    try:
+        custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+        custom_docker.compose.up(detach=True)
+
+        # Bridge Traefik to the new isolated network (ignore if already connected).
+        os.system(f"docker network connect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
+
+        db_container = Container.objects.filter(id=container_id).first()
+        user = User.objects.filter(id=user_id).first()
+        if db_container and user:
+            log_user_action(user, f"Deployed composed project '{container_name}'", db_container)
+    except Exception as e:
+        print(f"Async deployment error for {project_name}: {e}")
+        db_container = Container.objects.filter(id=container_id).first()
+        if db_container:
+            db_container.status = "STOP"
+            db_container.save(update_fields=["status"])
+    finally:
+        close_old_connections()
 
 #initialize docker client
 def get_docker_client():
@@ -450,7 +485,6 @@ def start_container(request):
         terminal_info = APP_CATALOG["attacker-terminal"]
         compose_dict["services"]["attacker"] = {
             "image": terminal_info["image"],
-            "command": terminal_info["command"],
             "networks": ["default"],
             "labels": {
                 "traefik.enable": "true",
@@ -461,23 +495,31 @@ def start_container(request):
             }
         }
 
+        if "command" in terminal_info:
+            compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
+
         # 4. Save YAML to Disk
         with open(file_path, 'w') as f:
             _dump_compose_yaml(compose_dict, f)
 
-        # 5. Execute Docker Compose
-        custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-        custom_docker.compose.up(detach=True)
-
-        # 6. Bridge Traefik to the new isolated network
-        _connect_traefik_to_network(network_name)
-
-        # 7. Update Database
+        # 5. Mark as starting and run compose work asynchronously.
         db_container.status = "STARTING"
         db_container.save()
-        log_user_action(request.user, f"Deployed composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "id": project_name}, status=201)
+        threading.Thread(
+            target=_start_compose_project_async,
+            args=(
+                request.user.id,
+                db_container.id,
+                project_name,
+                db_container.name,
+                file_path,
+                network_name,
+            ),
+            daemon=True,
+        ).start()
+
+        return JsonResponse({"status": "accepted", "id": project_name}, status=202)
         
     except Exception as e:
         print(f"Deployment Error: {str(e)}")
