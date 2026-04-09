@@ -8,6 +8,8 @@ import uuid
 import os
 import yaml
 import subprocess
+from django.conf import settings
+from .catalog import APP_CATALOG
 from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -25,6 +27,10 @@ from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
 
+
+YAML_DIR = os.path.join(settings.BASE_DIR, 'media', 'compose_files')
+os.makedirs(YAML_DIR, exist_ok=True)
+
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
 
@@ -40,9 +46,9 @@ ALLOWED_VULN_IMAGES = [
     "pygoat/pygoat",
     "bkimminich/juice-shop",
     "grafana/grafana:8.3.0",
-    "vulnerables/web-dvwa"
-    "tiredful-api"
-    "shellshock"
+    "vulnerables/web-dvwa",
+    "tiredful-api",
+    "shellshock",
     "apache-struts"
 ]
 
@@ -277,11 +283,10 @@ def get_containers(request):
 @require_http_methods(["POST"])
 @login_required
 def start_container(request):
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)      
     try:
         body = json.loads(request.body)
+        print(f"INCOMING START REQUEST: {body}")
+        
         image_name = body.get('imageName')
 
         if image_name not in ALLOWED_VULN_IMAGES:
@@ -289,8 +294,27 @@ def start_container(request):
 
         app_name = body.get('name')
         user_id_str = str(request.user.id)
+        
+        IMAGE_TO_KEY = {
+            "pygoat/pygoat": "pygoat",
+            "bkimminich/juice-shop": "juice-shop",
+            "grafana/grafana:8.3.0": "grafana",
+            "vulnerables/web-dvwa": "web-dvwa",
+            "tiredful-api": "tiredful-api",
+            "shellshock": "shellshock",
+            "apache-struts": "apache-struts"
+        }
 
-        # 1. Database & Quota Check
+        app_key = body.get('appKey')
+        if not app_key:
+            app_key = IMAGE_TO_KEY.get(image_name)
+
+        app_info = APP_CATALOG.get(app_key)
+        
+        if not app_info:
+            print(f"❌ FAILED TO FIND CATALOG INFO FOR KEY: '{app_key}'")
+            return JsonResponse({"error": "Invalid application catalog key."}, status=400)
+        
         db_container = Container.objects.filter(
             user=request.user, 
             description=f"Sandbox for {app_key}"
@@ -304,9 +328,6 @@ def start_container(request):
                 status="CREAT",
                 docker_container_id=""
             )
-            created = True
-        else:
-            created = False
 
         other_containers_count = Container.objects.filter(
             user=request.user
@@ -315,8 +336,6 @@ def start_container(request):
         if other_containers_count >= MAX_CONTAINERS:
              return JsonResponse({"error": "Quota exceeded. 10 containers are already owned by this account"}, status=429)
 
-        # 2. Generate Project Details
-        # If it already has a project name, reuse it; otherwise, generate a new one
         existing_id = db_container.docker_container_id
         
         if existing_id and existing_id.startswith(f"wadt-user{request.user.id}-{app_key}"):
@@ -330,10 +349,8 @@ def start_container(request):
         network_name = f"{project_name}_default"
         app_domain = config("APP_DOMAIN", default="localhost")
 
-        # 3. Build the YAML Dictionary
         compose_dict = {"services": {}}
         
-        # Build the vulnerable web app service
         app_port = app_info.get("port", "80")
         router_rule = f"Host(`{project_name}.{app_domain}`)"
         
@@ -346,15 +363,13 @@ def start_container(request):
                 f"traefik.http.routers.{project_name}.entrypoints": "web",
                 f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
                 "traefik.docker.network": network_name,
-                "wadt.user_id": user_id_str # Keep tracking the user
+                "wadt.user_id": user_id_str
             }
         }
 
-        # Add optional fields if they exist in the catalog
         if "environment" in app_info: compose_dict["services"]["web"]["environment"] = app_info["environment"]
         if "cap_add" in app_info: compose_dict["services"]["web"]["cap_add"] = app_info["cap_add"]
 
-        # Build the Attacker Terminal service
         terminal_info = APP_CATALOG["attacker-terminal"]
         compose_dict["services"]["attacker"] = {
             "image": terminal_info["image"],
@@ -378,19 +393,17 @@ def start_container(request):
             
             custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
             custom_docker.compose.up(detach=True)
-            
-            # 6. Bridge Traefik (Cross-platform)
+
             subprocess.run(
                 ["docker", "network", "connect", network_name, "web-app-deployment-tool-traefik-1"],
                 capture_output=True
             )
 
-        # 7. Update Database
         db_container.status = "STARTING"
         db_container.save()
-        log_user_action(request.user, f"Started container '{db_container.name}'", db_container)
+        log_user_action(request.user, f"Started composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "id": new_container.short_id}, status=201)
+        return JsonResponse({"status": "success", "id": project_name}, status=201)
         
     except Exception as e:
         print(f"Deployment Error: {str(e)}")
@@ -430,8 +443,6 @@ def stop_container(request, container_id):
     except Exception as e:
         print(f"Error in stop_container: {str(e)}")
         return JsonResponse({"error": "An internal error occured."}, status=500)
-    finally:
-        client.close()
     
 @require_http_methods(["POST"])
 @login_required
@@ -854,6 +865,8 @@ def get_all_containers_admin(request):
         page_number = request.GET.get('page', 1)
         users_with_containers = User.objects.filter(container__isnull=False).distinct()
 
+        admin_org = None
+
         if user_role in ['ADMIN', 'COADMIN']:
             admin_org = user_profile.organization
             if not admin_org:
@@ -888,9 +901,11 @@ def get_all_containers_admin(request):
             for user, c_list in organized_data.items()
         ]
 
+        org_scope_name = admin_org.name if admin_org else "Global (Super-Admin)"
+
         return JsonResponse({
             "data": response_data,
-            "organization_scope": admin_org.name if user_role == 'ADMIN' and admin_org else "Global (Super-Admin)",
+            "organization_scope": org_scope_name,
             "pagination": {
                 "current_page": page_obj.number,
                 "total_pages": paginator.num_pages,
@@ -916,33 +931,25 @@ def check_container_ready(request, container_id):
         return JsonResponse({"error": "Container is stopped.", "ready": False}, status=400)
 
     app_domain = config("APP_DOMAIN", default="localhost")
+    protocol = "http" if app_domain == "localhost" else "https"
+    
     hostname = f"{container_id}.{app_domain}"
-    terminal_hostname = f"terminal.{hostname}" # Define the terminal hostname
+    terminal_hostname = f"terminal.{hostname}"
+    subdomain_url = f"{protocol}://{hostname}"
+    terminal_url = f"{protocol}://{terminal_hostname}"
 
     # 1. The Traefik Probes
-    # Check BOTH the main app and the terminal
     app_is_ready = _probe_traefik_host(hostname)
     terminal_is_ready = _probe_traefik_host(terminal_hostname)
 
-    # If EITHER of them is still throwing a 502 Bad Gateway, keep spinning!
     if not (app_is_ready and terminal_is_ready):
         return JsonResponse({"ready": False})
 
-        app_domain = config("APP_DOMAIN", default="localhost")
-        protocol = "http" if app_domain == "localhost" else "https"
-        hostname = f"{docker_container.name}.{app_domain}"
-        subdomain_url = f"{protocol}://{hostname}"
-
-        # Backend readiness: only mark ready when Traefik can reach this host
-        is_ready = _probe_traefik_host(hostname)
-
-        return JsonResponse({
-            "ready": is_ready,
-            "url": subdomain_url if is_ready else None
-        })
-            
-    finally:
-        client.close()
+    return JsonResponse({
+        "ready": True,
+        "url": subdomain_url,
+        "terminal_url": terminal_url
+    })
 
 def log_user_action(user, action_message, container=None):
     try:
