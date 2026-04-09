@@ -23,7 +23,14 @@ APP_CATALOG = {
     },
     "attacker-terminal": {
         "image": "kalilinux/kali-rolling:latest",
-        "command": "bash -c 'apt-get update && apt-get install -y nmap curl iputils-ping && curl -L https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.aarch64 -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && ttyd -W bash'",
+               # Exit 126 on EC2 amd64: old catalog used ttyd.aarch64 (ARM only). Pick binary from `uname -m`.
+        "command": (
+            'bash -c "set -e; apt-get update && apt-get install -y nmap curl iputils-ping; '
+            "ARCH=$$(uname -m); "
+            "case $$ARCH in x86_64|amd64) T=ttyd.x86_64 ;; aarch64|arm64) T=ttyd.aarch64 ;; *) T=ttyd.x86_64 ;; esac; "
+            "curl -fL https://github.com/tsl0922/ttyd/releases/download/1.7.7/$${T} -o /usr/local/bin/ttyd && "
+            'chmod +x /usr/local/bin/ttyd && exec ttyd -W bash"'
+        ),
         "port": "7681",
         "labels": {
             "traefik.enable": "true",

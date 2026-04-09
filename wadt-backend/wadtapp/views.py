@@ -7,6 +7,7 @@ import time
 import uuid
 import os
 import yaml
+from yaml.representer import SafeRepresenter
 from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -38,6 +39,29 @@ CONTAINER_READINESS_TIMEOUT = 2
 
 # Base URL to reach Traefik's HTTP entrypoint (no DNS required)
 TRAEFIK_URL = config("TRAEFIK_URL", default="http://127.0.0.1")
+
+class _ComposeYamlDumper(yaml.SafeDumper):
+    """Compose needs literal $$ in the file; YAML 1.1 double-quoted scalars fold $$ into one $."""
+
+
+def _compose_str_representer(dumper, data):
+    if isinstance(data, str) and ("bash -c" in data or "$$" in data):
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="'")
+    return SafeRepresenter.represent_str(dumper, data)
+
+
+_ComposeYamlDumper.add_representer(str, _compose_str_representer)
+
+
+def _dump_compose_yaml(compose_dict, stream):
+    yaml.dump(
+        compose_dict,
+        stream,
+        Dumper=_ComposeYamlDumper,
+        default_flow_style=False,
+        allow_unicode=True,
+        width=10_000,
+    )
 
 MAX_CONTAINERS = 10
 CONTAINER_MEM_LIMIT = "512m"
@@ -77,6 +101,69 @@ def get_docker_client():
         return client
     except Exception:
         return None
+
+def _get_traefik_container(client):
+    """
+    Find the running Traefik container created by your compose stack.
+    """
+    for c in client.containers.list():
+        name = c.name.lower()
+        if "traefik" in name:
+            return c
+    return None
+
+
+def _connect_traefik_to_network(network_name: str) -> None:
+    """
+    Ensure Traefik is attached to the given Docker network.
+    Safe to call repeatedly.
+    """
+    try:
+        client = docker.from_env()
+        traefik = _get_traefik_container(client)
+        if not traefik:
+            print("Traefik container not found; skipping network connect.")
+            return
+
+        network = client.networks.get(network_name)
+
+        # Skip if already connected
+        traefik.reload()
+        attached = traefik.attrs.get("NetworkSettings", {}).get("Networks", {})
+        if network_name in attached:
+            return
+
+        network.connect(traefik)
+        print(f"Connected Traefik to network: {network_name}")
+    except Exception as e:
+        print(f"Failed to connect Traefik to {network_name}: {e}")
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+def _disconnect_traefik_from_network(network_name: str) -> None:
+    """
+    Detach Traefik from a project network during teardown.
+    """
+    try:
+        client = docker.from_env()
+        traefik = _get_traefik_container(client)
+        if not traefik:
+            return
+
+        network = client.networks.get(network_name)
+        network.disconnect(traefik, force=True)
+        print(f"Disconnected Traefik from network: {network_name}")
+    except Exception as e:
+        print(f"Failed to disconnect Traefik from {network_name}: {e}")
+    finally:
+        try:
+            client.close()
+        except Exception:
+            pass
 
 def get_container_url(request, container):
     try:
@@ -246,7 +333,8 @@ def get_containers(request):
 
             # Construct the readable URL directly from the project name
             app_domain = config("APP_DOMAIN", default="localhost")
-            protocol = "http" if app_domain == "localhost" else "https"
+            use_tls = config("USE_TLS", default=False, cast=bool)
+            protocol = "https" if use_tls else "http"
 
             # 2. State Machine Logic
             is_ready = True
@@ -375,14 +463,14 @@ def start_container(request):
 
         # 4. Save YAML to Disk
         with open(file_path, 'w') as f:
-            yaml.dump(compose_dict, f)
+            _dump_compose_yaml(compose_dict, f)
 
         # 5. Execute Docker Compose
         custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
         custom_docker.compose.up(detach=True)
 
         # 6. Bridge Traefik to the new isolated network
-        os.system(f"docker network connect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
+        _connect_traefik_to_network(network_name)
 
         # 7. Update Database
         db_container.status = "STARTING"
@@ -450,7 +538,7 @@ def stop_container(request, container_id):
 
     try:
         # 1. Evict Traefik (silent fail if already gone)
-        os.system(f"docker network disconnect {network_name} web-app-deployment-tool-traefik-1 > /dev/null 2>&1")
+        _disconnect_traefik_from_network(network_name)
 
         # 2. Docker Compose Down
         if os.path.exists(file_path):

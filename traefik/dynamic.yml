@@ -1,14 +1,14 @@
 http:
   routers:
     api:
-      rule: "PathPrefix(`/api`)"
+      rule: "(Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/api`)"
       entryPoints:
         - web
       service: django-api
       priority: 100
 
     frontend:
-      rule: "PathPrefix(`/`)"
+      rule: "(Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/`)"
       entryPoints:
         - web
       service: frontend-static
