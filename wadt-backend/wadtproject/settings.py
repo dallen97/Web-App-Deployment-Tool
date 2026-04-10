@@ -33,7 +33,13 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DEBUG", default=True, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1', '13.58.27.23', config("APP_DOMAIN", default="localhost")]
+ALLOWED_HOSTS = ['localhost', 
+'127.0.0.1', 
+'13.58.27.23', 
+config("APP_DOMAIN", 
+default="localhost"), '.thedemo.fischbowl.tech',
+
+]
 
 
 # Application definition
@@ -152,13 +158,14 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173", "http://13.58.27.23:8000","http://13.58.27.23"
+    "http://127.0.0.1:5173", 
+"http://13.58.27.23:8000","http://13.58.27.23", "http://thedemo.fischbowl.tech"
 ]
 
 # CSRF: Allow Frontend to send Tokens
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173", "http://13.58.27.23:8000","http://13.58.27.23"
+    "http://127.0.0.1:5173", "http://13.58.27.23:8000","http://13.58.27.23", "http://thedemo.fischbowl.tech"
 ]
 CSRF_COOKIE_HTTPONLY = False  # Allows JS to read the token
 CSRF_COOKIE_SAMESITE = 'Lax'

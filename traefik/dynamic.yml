@@ -1,14 +1,14 @@
 http:
   routers:
     api:
-      rule: "(Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/api`)"
+      rule: "(Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/api`)"
       entryPoints:
         - web
       service: django-api
       priority: 100
 
     frontend:
-      rule: "(Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/`)"
+      rule: "Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)"
       entryPoints:
         - web
       service: frontend-static
