@@ -8,6 +8,7 @@ import uuid
 import os
 import yaml
 import subprocess
+import boto3
 from django.conf import settings
 from .catalog import APP_CATALOG
 from python_on_whales import DockerClient
@@ -27,6 +28,9 @@ from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
 
+cognito = boto3.client('cognito-idp', region_name=config('AWS_DEFAULT_REGION'))
+CLIENT_ID = config('COGNITO_CLIENT_ID')
+USER_POOL_ID = config('COGNITO_USER_POOL_ID')
 
 YAML_DIR = os.path.join(settings.BASE_DIR, 'media', 'compose_files')
 os.makedirs(YAML_DIR, exist_ok=True)
@@ -144,13 +148,27 @@ def register_user(request):
         if User.objects.filter(username=username).exists():
             return JsonResponse({'error': 'Username unavailable'}, status=409)
         
-        user = User.objects.create_user(username=username, password=password)
-        log_user_action(user, "Created a new account")
+        user = User(username=username)
+        user.set_unusable_password() 
+        user.save()
 
+        try:
+            cognito.sign_up(
+                ClientId=CLIENT_ID,
+                Username=username,
+                Password=password
+            )
+            cognito.admin_confirm_sign_up(
+                UserPoolId=USER_POOL_ID,
+                Username=username
+            )
+        except Exception as e:
+            user.delete()
+            return JsonResponse({'error': f'AWS Sync Error: {str(e)}'}, status=500)
+
+        log_user_action(user, "Created a new account")
         return JsonResponse({'status': 'Success', 'message': 'User created successfully', 'user_id': user.id}, status=201)
 
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
@@ -166,20 +184,143 @@ def login_user(request):
         if not all([username, password]):
             return JsonResponse({'error': 'Username and Password Required'}, status=400)
         
-        user = authenticate(request, username=username, password=password)
+        try:
+            response = cognito.initiate_auth(
+                ClientId=CLIENT_ID,
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={'USERNAME': username, 'PASSWORD': password}
+            )
 
-        if user is not None:
-            #creates session id, that's sent back to browser as a cookie
-            login(request, user)
-            log_user_action(user, "Logged in")
-            return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
-        else:
+            if response.get('ChallengeName') == 'SOFTWARE_TOKEN_MFA':
+                return JsonResponse({
+                    "status": "MFA_REQUIRED",
+                    "session": response['Session'],
+                    "message": "Please enter your 6-digit authenticator code."
+                })
+            
+            elif response.get('ChallengeName') == 'MFA_SETUP':
+                request.session['cognito_setup_session'] = response['Session']
+                return JsonResponse({
+                    "status": "MFA_SETUP_REQUIRED",
+                    "message": "You must configure Multi-Factor Authentication to continue."
+                })
+
+            user = get_object_or_404(User, username=username)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+
+            if user is not None:
+                request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+                log_user_action(user, "Logged in")
+                return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
+            else:
+                return JsonResponse({'error': 'Credentials invalid.'}, status=401)
+
+        except cognito.exceptions.NotAuthorizedException:
             return JsonResponse({'error': 'Invalid credentials.'}, status=401)
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+            
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def verify_mfa_login(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        mfa_code = data.get('mfaCode')
+        session = data.get('session')
+
+        response = cognito.respond_to_auth_challenge(
+            ClientId=CLIENT_ID,
+            ChallengeName='SOFTWARE_TOKEN_MFA',
+            Session=session,
+            ChallengeResponses={
+                'USERNAME': username,
+                'SOFTWARE_TOKEN_MFA_CODE': mfa_code
+            }
+        )
+
+        user = get_object_or_404(User, username=username)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+        
+        log_user_action(user, "Logged in with MFA")
+        return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
+
+    except cognito.exceptions.CodeMismatchException:
+        return JsonResponse({"error": "Invalid MFA code. Please try again."}, status=401)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def setup_mfa(request):
+    access_token = request.session.get('cognito_access_token')
+    setup_session = request.session.get('cognito_setup_session')
+    data = json.loads(request.body) if request.body else {}
+    username = request.user.username if request.user.is_authenticated else data.get('username')
+
+    if not access_token:
+        return JsonResponse({"error": "AWS Token missing. Please log out and back in."}, status=401)
+
+    try:
+        if access_token:
+            response = cognito.associate_software_token(AccessToken=access_token)
+        else:
+            response = cognito.associate_software_token(Session=setup_session)
+            request.session['cognito_setup_session'] = response['Session']
+
+        secret_code = response['SecretCode']
+        qr_uri = f"otpauth://totp/WADT_Deployment:{username}?secret={secret_code}&issuer=WADT_Deployment"
+
+        return JsonResponse({"status": "SUCCESS", "secretCode": secret_code, "qrCodeUri": qr_uri})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def verify_mfa_setup(request):
+    try:
+        data = json.loads(request.body)
+        mfa_code = data.get('mfaCode')
+        username = data.get('username') 
+        access_token = request.session.get('cognito_access_token')
+        setup_session = request.session.get('cognito_setup_session')
+
+        if access_token:
+            cognito.verify_software_token(AccessToken=access_token, UserCode=mfa_code, FriendlyDeviceName='WADT_Authenticator')
+            cognito.set_user_mfa_preference(AccessToken=access_token, SoftwareTokenMfaSettings={'Enabled': True, 'PreferredMfa': True})
+            
+            log_user_action(request.user, "Enabled Multi-Factor Authentication")
+            return JsonResponse({"status": "SUCCESS", "message": "MFA successfully enabled."})
+
+        elif setup_session:
+            verify_response = cognito.verify_software_token(Session=setup_session, UserCode=mfa_code, FriendlyDeviceName='WADT_Authenticator')
+        
+            auth_response = cognito.respond_to_auth_challenge(
+                ClientId=CLIENT_ID,
+                ChallengeName='MFA_SETUP',
+                Session=verify_response['Session'],
+                ChallengeResponses={'USERNAME': username}
+            )
+
+            user = get_object_or_404(User, username=username)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+
+            request.session['cognito_access_token'] = auth_response['AuthenticationResult']['AccessToken']
+            del request.session['cognito_setup_session']
+            
+            log_user_action(user, "Enabled MFA and Logged In")
+            return JsonResponse({"status": "SUCCESS", "message": "MFA enabled and logged in.", "user_id": user.id})
+            
+        else:
+             return JsonResponse({"error": "AWS Token missing."}, status=401)
+
+    except cognito.exceptions.EnableSoftwareTokenMFAException:
+        return JsonResponse({"error": "Invalid code provided for setup."}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 @require_http_methods(["POST"])
 @login_required
