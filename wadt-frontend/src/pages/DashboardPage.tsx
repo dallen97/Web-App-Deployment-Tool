@@ -4,11 +4,13 @@ import Footer from "../components/Footer";
 import Header from "../components/Header";
 import { Container, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
 function DashboardContent() {
   const [username, setUsername] = useState<string>("");
   const [containers, setContainers] = useState<any[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
+  const navigate = useNavigate();
 
   const formatDuration = (totalSeconds: number) => {
     const clamped = Math.max(0, Math.floor(totalSeconds));
@@ -29,7 +31,7 @@ function DashboardContent() {
         return res.json();
       })
       .then((data) => setUsername(data.username))
-      .catch(() => setUsername("Guest"));
+      .catch(() => navigate("/login/"));
   }, []);
 
   //Fetch containers
