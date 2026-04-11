@@ -93,13 +93,9 @@ function AdminPage() {
   };
 
   const handleDelete = () => {
-    if (
-      window.confirm(
-        `Are you sure you want to delete your organization? This cannot be undone.`,
-      )
-    ) {
-      deleteOrg();
-    }
+    window.confirm(
+      `Are you sure you want to delete your organization? This cannot be undone.`,
+    ) && deleteOrg();
   };
 
   const deleteOrg = async () => {
