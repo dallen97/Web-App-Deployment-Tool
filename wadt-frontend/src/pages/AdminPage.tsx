@@ -1,23 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { Form, Container, InputGroup, Button } from "react-bootstrap";
+import { Container, Button, OverlayTrigger, Tooltip } from "react-bootstrap";
 import UserTables, { type userInfo } from "../components/userTables";
 import Cards from "../components/Card";
 import { useNavigate } from "react-router-dom";
-
-function getCookie(name: string) {
-  let cookieValue = null;
-  if (document.cookie && document.cookie !== "") {
-    const cookies = document.cookie.split(";");
-    for (let i = 0; i < cookies.length; i++) {
-      const cookie = cookies[i].trim();
-      if (cookie.substring(0, name.length + 1) === name + "=") {
-        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
-        break;
-      }
-    }
-  }
-  return cookieValue;
-}
+import getCookie from "../components/GetCookie";
 
 function AdminPage() {
   const navigate = useNavigate();
@@ -42,20 +28,34 @@ function AdminPage() {
 
       const { data: raw } = await response.json();
 
+      // Check if users have started a container yet or not
       const organized: userInfo[] = raw.flatMap((user: any) =>
-        user.containers.map((container: any) => ({
-          name: user.username,
-          con_name: container.name,
-          con_status: container.status,
-          con_id: container.container_id ?? "",
-          started_at: container.started_at ?? null,
-          max_runtime_seconds: container.max_runtime_seconds ?? 86400,
-        })),
+        user.containers.length === 0
+          ? [
+              {
+                name: user.username,
+                userId: user.user_id,
+                con_name: user.name,
+                con_status: user.status,
+                con_id: user.container_id,
+                started_at: user.started_at ?? null,
+                max_runtime_seconds: user.max_runtime_seconds ?? 86400,
+              },
+            ]
+          : user.containers.map((container: any) => ({
+              name: user.username,
+              userId: user.user_id,
+              con_name: container.name,
+              con_status: container.status,
+              con_id: container.container_id,
+              started_at: container.started_at ?? null,
+              max_runtime_seconds: container.max_runtime_seconds ?? 86400,
+            })),
       );
 
       setData(organized);
-    } catch {
-      console.log("Failed to fetch container data");
+    } catch (error) {
+      console.error("Failed to fetch container data");
     }
   }, []);
 
@@ -111,94 +111,40 @@ function AdminPage() {
     });
     const data = await response.json();
     if (data.status === "success") {
-      setViews("createClass");
+      navigate("/dashboard");
     } else {
       console.log("ERROR in leaving organization");
     }
   };
 
-  const createClass = () => {
-    const createGroup = async (e: React.FormEvent) => {
-      e.preventDefault();
-      try {
-        const response = await fetch("/api/create_organization/", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-          },
-          body: JSON.stringify({
-            name: groupName,
-          }),
-          credentials: "include",
-        });
-        const data = await response.json();
-        if (response.ok) {
-          console.log("Group created successfully:", data);
-          setViews("admin_dash");
-          setGroupCode(data.org_code);
-          setOrgID(data.org_id);
-        } else {
-          console.error("Failed to create group:", data);
-        }
-      } catch (error) {
-        console.error("Error creating group:", error);
-      }
-    };
-
-    return (
-      <>
-        <div className="d-flex flex-column min-vh-100 justify-content-center align-items-center">
-          <h3 style={{ marginBottom: "50px" }}>Enter Organization Name</h3>
-          <Form onSubmit={createGroup}>
-            <InputGroup className="mb-3">
-              <Form.Control
-                type="text"
-                placeholder="Enter Group Name"
-                style={{
-                  display: "inline-block",
-                  width: "200px",
-                  marginLeft: "10px",
-                }}
-                value={groupName}
-                onChange={(e) => setGroupName(e.target.value)}
-              />
-            </InputGroup>
-          </Form>
-          <div className="d-flex align-items-center my-3">
-            <hr className="flex-grow-1" />
-            <span className="mx-2">OR</span>
-            <hr className="flex-grow-1" />
-          </div>
-          <div className="d-flex align-items-center my-3">
-            <hr className="flex-grow-1" />
-            <Button className="start_button" onClick={handleUser}>
-              Return to User Dashboard
-            </Button>
-            <hr className="flex-grow-1" />
-          </div>
-        </div>
-      </>
-    );
-  };
-
   const admin_dash = () => {
     return (
       <>
-        <div style={{ position: "relative" }}>
-          <Button
-            onClick={handleDelete}
-            size="sm"
-            className="start_button"
-            style={{ position: "absolute", top: "2", right: "2" }}
-          >
-            Delete Organization
+        <Container
+          fluid
+          className="d-flex justify-content-end align-items-center"
+          style={{ gap: "10px", paddingTop: "10px" }}
+        >
+          <Button className="start_button" size="sm" onClick={handleUser}>
+            Return to User Dashboard
           </Button>
-        </div>
+
+          <OverlayTrigger
+            placement="bottom"
+            delay={{ show: 250, hide: 400 }}
+            overlay={<Tooltip id="button-tooltip">Delete organization</Tooltip>}
+          >
+            <Button onClick={handleDelete} size="sm" variant="danger">
+              ✕
+            </Button>
+          </OverlayTrigger>
+        </Container>
+
         <div className="d-flex flex-column min-vh-100">
           <main className="flex-grow-1 d-flex align-items-center justify-content-center">
             <Container className="text-center" style={{ maxWidth: "1000px" }}>
               <h1>Welcome Admin</h1>
+
               <Container>
                 <div
                   className="d-flex justify-content-center align-center"
@@ -266,7 +212,6 @@ function AdminPage() {
     <>
       {/*switches view state*/}
       {views === "loading" && <p>Loading ...</p>}
-      {views === "createClass" && createClass()}
       {views === "admin_dash" && admin_dash()}
     </>
   );
