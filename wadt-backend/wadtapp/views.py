@@ -886,6 +886,12 @@ def delete_organization(request, org_id):
         if profile.role == 'ADMIN' and profile.organization != org:
             return JsonResponse({"error": "You can only delete an organization you own."}, status=403)
         org_name = org.name
+
+        UserProfile.objects.filter(organization=org).update(
+            role='STUDENT',
+            is_pending_teacher=False
+        )
+
         org.delete()
         log_user_action(request.user, f"Deleted organization '{org_name}'")
 
@@ -1004,8 +1010,6 @@ def get_all_containers_admin(request):
 
     try:
         page_number = request.GET.get('page', 1)
-        users_with_containers = User.objects.filter(container__isnull=False).distinct()
-
         admin_org = None
 
         if user_role in ['ADMIN', 'COADMIN']:
@@ -1013,7 +1017,9 @@ def get_all_containers_admin(request):
             if not admin_org:
                 users_with_containers = User.objects.none()
             else:
-                users_with_containers = users_with_containers.filter(profile__organization=admin_org)
+                users_with_containers = User.objects.filter(profile__organization=admin_org)
+        else:
+            users_with_containers = User.objects.all()
 
         users_with_containers = users_with_containers.order_by('username')
         paginator = Paginator(users_with_containers, 10)
