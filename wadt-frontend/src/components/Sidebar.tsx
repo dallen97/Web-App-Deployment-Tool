@@ -42,7 +42,6 @@ export default function Sidebar() {
       });
       return await response.json();
     } catch (error) {
-      console.log(error);
       return null;
     }
   };

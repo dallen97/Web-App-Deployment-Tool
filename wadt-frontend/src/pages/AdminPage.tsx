@@ -35,6 +35,7 @@ function AdminPage() {
               {
                 name: user.username,
                 userId: user.user_id,
+                role: user.role,
                 con_name: user.name,
                 con_status: user.status,
                 con_id: user.container_id,
@@ -45,6 +46,7 @@ function AdminPage() {
           : user.containers.map((container: any) => ({
               name: user.username,
               userId: user.user_id,
+              role: user.role,
               con_name: container.name,
               con_status: container.status,
               con_id: container.container_id,
@@ -105,6 +107,7 @@ function AdminPage() {
         "Content-Type": "application/json",
         "X-CSRFToken": getCookie("wadt_csrftoken") || "",
       },
+      credentials: "include",
       body: JSON.stringify({
         org_id: orgID,
       }),
@@ -182,7 +185,7 @@ function AdminPage() {
   useEffect(() => {
     const pageLoad = async () => {
       try {
-        const response = await fetch("/api/current_user", {
+        const response = await fetch("/api/current_user/", {
           credentials: "include",
         });
         if (!response.ok) {

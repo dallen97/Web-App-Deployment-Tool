@@ -4,6 +4,7 @@ export interface HeaderButton {
   link: string;
   text: string;
   isText?: boolean; // for putting text in header that does not look like the clickable stuff
+  onClick?: () => void;
 }
 
 export interface HeaderProps {
@@ -55,6 +56,7 @@ const Header = ({
                   className="nav-link"
                   style={{ color: "var(--primary-theme1)" }}
                   href={btn.link}
+                  onClick={btn.onClick}
                 >
                   {btn.text}
                 </a>
