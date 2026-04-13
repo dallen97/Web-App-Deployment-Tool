@@ -116,7 +116,7 @@ function UserTables({ data, onStop }: UserTablesProps) {
 
   const handleRemoveUser = async (row: userInfo) => {
     try {
-      const response = await fetch(`/api/remove_member/${row.userId}`, {
+      const response = await fetch(`/api/remove_member/${row.userId}/`, {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",
