@@ -7,19 +7,32 @@ services:
       - "--log.level=DEBUG"
       - "--api.dashboard=true"
       - "--api.insecure=true"
+
+      # Docker provider
       - "--providers.docker=true"
       - "--providers.docker.network=wadt_sandbox_network"
       - "--providers.docker.exposedByDefault=false"
+
+      # File provider (required)
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+
+      # Entrypoints
       - "--entrypoints.web.address=:80"
       - "--entrypoints.traefik.address=:8080"
+
     ports:
-      - "80:80" # HTTP entrypoint
-      - "8080:8080" # optional: Traefik dashboard at http://localhost:8080
+      - "80:80"
+      - "8080:8080"
+
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "/home/ubuntu/Web-App-Deployment-Tool/wadt-backend/media/compose_files:/etc/traefik/dynamic"
+
     networks:
       - wadt_sandbox_network
 
 networks:
   wadt_sandbox_network:
     external: true
+

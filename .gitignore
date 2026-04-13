@@ -235,3 +235,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 wadt-backend/backend_test_results.txt
+
+wadt-backend/media/compose_files/
+wadt-backend/wadt-backend/wadtapp/tmp/

@@ -32,7 +32,7 @@ SECRET_KEY = config("SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("Debug", default=False, cast=bool)
 
-ALLOWED_HOSTS = ['localhost', '127.0.0.1']
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '18.223.131.149', '3.143.230.233']
 
 
 # Application definition
@@ -141,12 +141,16 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://18.223.131.149",
+    "http://3.143.230.233",
 ]
 
 # CSRF: Allow Frontend to send Tokens
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "http://18.223.131.149",
+    "http://3.143.230.233",
 ]
 CSRF_COOKIE_HTTPONLY = False  # Allows JS to read the token
 CSRF_COOKIE_SAMESITE = 'Lax'

@@ -13,3 +13,4 @@ urllib3==2.6.3
 django-cors-headers
 pyyaml
 python-on-whales
+boto3
