@@ -55,7 +55,7 @@ function LandingPage() {
             <Card
               cardWidth="30rem"
               title="Hone Your Cyber Security Skills"
-              text="Put your hacking skills to the test against intentionally vulnerable applications. Learn to think like an attacker — ethically and legally."
+              text="Put your hacking skills to the test against intentionally vulnerable applications. Learn to think like an attacker."
             ></Card>
           </div>
         </div>

@@ -1,11 +1,15 @@
 import { useEffect, useState, useRef } from "react";
 import { Button, Table } from "react-bootstrap";
+import getCookie from "./GetCookie";
+import { OverlayTrigger, Tooltip } from "react-bootstrap";
 
 export interface userInfo {
   name: string;
-  con_name: string;
-  con_status: string;
-  con_id: string;
+  userId: number;
+  role: string;
+  con_name: string | null;
+  con_status: string | null;
+  con_id: string | null;
   started_at: string | null;
   max_runtime_seconds: number;
 }
@@ -27,7 +31,7 @@ function groupByUser(data: userInfo[]): Record<string, userInfo[]> {
 }
 
 function initials(name: string) {
-  return name.slice(0, 2).toUpperCase();
+  return name ? name.slice(0, 2).toUpperCase() : undefined;
 }
 
 const formatDuration = (totalSeconds: number) => {
@@ -37,6 +41,22 @@ const formatDuration = (totalSeconds: number) => {
   const minutes = Math.floor((clamped % 3600) / 60);
   const seconds = clamped % 60;
   return `${days}d ${hours}h ${minutes}m ${seconds}s`;
+};
+
+const makeCoadmin = async (row: userInfo) => {
+  const promote = await fetch(`/api/approve_teacher/${row.userId}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+    },
+    credentials: "include",
+    body: JSON.stringify({
+      target_user_id: row.userId,
+    }),
+  });
+  if (!promote.ok) console.log("ERROR");
+  console.log("User is now coadmin");
 };
 
 function UserTables({ data, onStop }: UserTablesProps) {
@@ -92,6 +112,27 @@ function UserTables({ data, onStop }: UserTablesProps) {
     const uptimeSeconds = (nowMs - startedMs) / 1000;
     const timeLeftSeconds = row.max_runtime_seconds - uptimeSeconds;
     return timeLeftSeconds <= 0 ? "Expired" : formatDuration(timeLeftSeconds);
+  };
+
+  const handleRemoveUser = async (row: userInfo) => {
+    try {
+      const response = await fetch(`/api/remove_member/${row.userId}/`, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+        },
+        credentials: "include",
+        body: JSON.stringify({
+          target_user_id: row.userId,
+        }),
+      });
+      if (!response.ok) return;
+
+      console.log("SUCCESSFULLY REMOVED");
+    } catch (error) {
+      console.error("ERROR REMOVING FROM ORG");
+    }
   };
 
   const handleStop = async (row: userInfo) => {
@@ -174,12 +215,12 @@ function UserTables({ data, onStop }: UserTablesProps) {
                 ).length;
                 return (
                   <>
-                    <tr
-                      key={username}
-                      onClick={() => toggleUser(username)}
-                      style={{ cursor: "pointer", background: "#00637c" }}
-                    >
-                      <td>
+                    <tr>
+                      <td
+                        key={username}
+                        onClick={() => toggleUser(username)}
+                        style={{ cursor: "pointer" }}
+                      >
                         <span
                           style={{
                             marginRight: 8,
@@ -193,17 +234,77 @@ function UserTables({ data, onStop }: UserTablesProps) {
                         >
                           ▶
                         </span>
-                        <strong>{username}</strong>
+                        {rows[0].role === "ADMIN" ? (
+                          <>
+                            <strong style={{ color: "red" }}>{username}</strong>
+                          </>
+                        ) : rows[0].role === "COADMIN" ? (
+                          <>
+                            <strong style={{ color: "yellow" }}>
+                              {username}
+                            </strong>
+                          </>
+                        ) : (
+                          <strong>{username}</strong>
+                        )}
                       </td>
                       <td>
-                        {rows.length} container{rows.length !== 1 ? "s" : ""}
+                        {/*Alter the 'container field if member has opened a container */}
+                        {rows.some((row) => !row.con_name)
+                          ? "0 containers"
+                          : `${rows.length} container${rows.length !== 1 ? "s" : ""}`}
                       </td>
                       <td>{runCount} running</td>
                       <td>—</td>
-                      <td>—</td>
+                      <td>
+                        {rows[0].role !== "ADMIN" ? (
+                          <>
+                            <OverlayTrigger
+                              placement="bottom"
+                              delay={{ show: 250, hide: 250 }}
+                              overlay={
+                                <Tooltip id="button-tooltip">
+                                  Promote to co-admin
+                                </Tooltip>
+                              }
+                            >
+                              <Button
+                                size="sm"
+                                variant="outline-warning"
+                                style={{ marginLeft: "5px" }}
+                                disabled={rows[0].role === "COADMIN"}
+                                onClick={() => makeCoadmin(rows[0])}
+                              >
+                                CO
+                              </Button>
+                            </OverlayTrigger>
+                            <OverlayTrigger
+                              placement="bottom"
+                              delay={{ show: 250, hide: 250 }}
+                              overlay={
+                                <Tooltip id="button-tooltip">
+                                  Remove User
+                                </Tooltip>
+                              }
+                            >
+                              <Button
+                                size="sm"
+                                variant="outline-danger"
+                                style={{ marginLeft: "5px" }}
+                                onClick={() => handleRemoveUser(rows[0])}
+                              >
+                                ✕
+                              </Button>
+                            </OverlayTrigger>
+                          </>
+                        ) : (
+                          <></>
+                        )}
+                      </td>
                     </tr>
 
                     {isOpen &&
+                      rows.some((row) => row.con_name) &&
                       rows.map((row) => {
                         const key = `${row.name}-${row.con_name}`;
                         const isLoading = !!loadingKeys[key];

@@ -280,7 +280,8 @@ def register_user(request):
             cognito.sign_up(
                 ClientId=CLIENT_ID,
                 Username=username,
-                Password=password
+                Password=password,
+                UserAttributes=[{'Name': 'email', 'Value': f'{username}@placeholder.com'}]
             )
             cognito.admin_confirm_sign_up(
                 UserPoolId=USER_POOL_ID,
@@ -385,7 +386,7 @@ def setup_mfa(request):
     data = json.loads(request.body) if request.body else {}
     username = request.user.username if request.user.is_authenticated else data.get('username')
 
-    if not access_token:
+    if not access_token and not setup_session:
         return JsonResponse({"error": "AWS Token missing. Please log out and back in."}, status=401)
 
     try:
@@ -450,6 +451,7 @@ def verify_mfa_setup(request):
 @login_required
 def logout_user(request):
     #logs out user and removes session data for user
+    request.session.flush()
     logout(request)
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 
@@ -471,6 +473,7 @@ def current_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
+    #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
@@ -486,7 +489,6 @@ def get_containers(request):
         
         for db_c in db_containers:
             project_name = db_c.docker_container_id
-    
             containers = client.containers.list(
                 all=True,
                 filters={"label": [f"com.docker.compose.project={project_name}", "com.docker.compose.service=web"]}
@@ -505,7 +507,7 @@ def get_containers(request):
                     "time_left": None
                 })
                 continue
-                
+            
             c = containers[0]
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
             custom_name = db_c.name
@@ -515,11 +517,9 @@ def get_containers(request):
 
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
-                
                 if '.' in started_at_str:
                     base, fraction = started_at_str.split('.')
                     started_at_str = f"{base}.{fraction[:6]}Z"
-                    
                 started_at = parse_datetime(started_at_str)
                 
                 if started_at:
@@ -570,7 +570,7 @@ def get_containers(request):
                 frontend_status = "starting"
 
             container_data.append({
-                "id": c.short_id,
+                "id": project_name,
                 "name": custom_name,
                 "image": image_tag,
                 "status": c.status,
@@ -904,9 +904,6 @@ def approve_teacher(request, target_user_id):
     try:
         target_user = User.objects.get(id=target_user_id)
         target_profile = target_user.profile
-
-        if not target_profile.is_pending_teacher:
-            return JsonResponse({"error": "This user does not have a pending request."}, status=400)
         
         if profile.role in ['ADMIN', 'COADMIN'] and target_profile.organization != profile.organization:
              return JsonResponse({"error": "You can only approve co-admins within your own organization."}, status=403)
@@ -1228,15 +1225,15 @@ def get_all_containers_admin(request):
 
         if user_role in ['ADMIN', 'COADMIN']:
             containers = Container.objects.filter(
-                user__in=users_on_page, 
+                user__in=users_on_page,
                 organization=admin_org
             ).select_related('user')
         else:
             containers = Container.objects.filter(user__in=users_on_page).select_related('user')
 
-        organized_data = {user.username: [] for user in users_on_page}
+        organized_data = {user.username: {"user_id": user.id, "role": user.profile.role, "containers": []} for user in users_on_page}
         for container in containers:
-            organized_data[container.user.username].append({
+            organized_data[container.user.username]["containers"].append({
                 "container_id": container.docker_container_id,
                 "name": container.name,
                 "status": container.status,
@@ -1244,8 +1241,8 @@ def get_all_containers_admin(request):
             })
 
         response_data = [
-            {"username": user, "containers": c_list} 
-            for user, c_list in organized_data.items()
+            {"username": username, "user_id": data["user_id"], "role": data["role"], "containers": data["containers"]}
+            for username, data in organized_data.items()
         ]
 
         org_scope_name = admin_org.name if admin_org else "Global (Super-Admin)"
@@ -1265,7 +1262,6 @@ def get_all_containers_admin(request):
     except Exception as e:
         print(f"Error in get_all_containers_admin: {str(e)}")
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
-
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):

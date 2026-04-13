@@ -343,6 +343,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                   )}
                   {/* 2. LOADING STATE: Show Spinner */}
                   {containerStatus[d.name] === "loading" && (
+                    <>
                     <Button
                       variant="primary"
                       disabled
@@ -358,6 +359,8 @@ const Docker = ({ docker = [] }: DockerList) => {
                       />
                       <span className="visually-hidden">Loading...</span>
                     </Button>
+                    <span style={{ marginLeft: "10px", fontSize: "14px", color: "gray" }}>Container starting, this may take a few minutes...</span>
+                    </>
                   )}
                   {/* 3. READY STATE: Show Open App Button */}
                   {containerStatus[d.name] === "ready" && (

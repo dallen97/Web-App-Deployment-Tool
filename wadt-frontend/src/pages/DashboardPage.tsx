@@ -4,6 +4,7 @@ import Footer from "../components/Footer";
 import Header from "../components/Header";
 import { Container, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
+import getCookie from "../components/GetCookie";
 
 function DashboardContent() {
   const [username, setUsername] = useState<string>("");
@@ -69,7 +70,20 @@ function DashboardContent() {
       <Header
         buttons={[
           { link: "#", text: `${username}`, isText: true },
-          { link: "/login/", text: "Logout" },
+          {
+            link: "#",
+            text: "Logout",
+            onClick: async () => {
+              await fetch("/api/logout_user/", {
+                method: "POST",
+                headers: {
+                  "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+                },
+                credentials: "include",
+              });
+              window.location.href = "/login";
+            },
+          },
         ]}
         align="left"
       />
@@ -196,7 +210,10 @@ function DashboardContent() {
                   {containers.map((container, index) => (
                     <li key={index} className="mb-3">
                       <strong>{container.name}</strong>
-                      <Link to={`/logs/${container.id}`}>
+                      <Link
+                        to={`/logs/${container.id}`}
+                        style={{ float: "right" }}
+                      >
                         {" "}
                         <strong> View Logs</strong>
                       </Link>
@@ -233,9 +250,14 @@ function DashboardContent() {
                         })()
                       ) : (
                         <>
-                          Uptime: {container.uptime}
-                          <br />
-                          Time left: {container.time_left}
+                          <p
+                            style={{
+                              marginTop: "10px",
+                              color: "var(--primary-theme1)",
+                            }}
+                          >
+                            <strong>container not running</strong>
+                          </p>
                         </>
                       )}
                     </li>
@@ -246,7 +268,7 @@ function DashboardContent() {
                   className="small_text d-flex justify-content-center align-center"
                   style={{ marginTop: "25px" }}
                 >
-                  No running containers.
+                  Start a container to get started.
                 </p>
               )}
             </Col>

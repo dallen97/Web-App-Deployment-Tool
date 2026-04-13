@@ -5,7 +5,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardLayout from "./pages/DashboardPage";
-import Account from "./pages/AccountPage";
+import LogPage from "./pages/LogPage";
 import AdminPage from "./pages/AdminPage";
 
 function ProtectRoutes() {
@@ -35,8 +35,35 @@ function ProtectRoutes() {
   }, []);
 
   if (isAuthenticated === null) return <p>Loading...</p>;
+
   if (!isAuthenticated) return <Navigate to="/login" />;
 
+  return <Outlet />;
+}
+function AdminRoutes() {
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const userInfo = await fetch("api/current_user/", {
+          method: "GET",
+          credentials: "include",
+        });
+        if (!userInfo.ok) {
+          setIsAdmin(false);
+          return;
+        }
+        const user = await userInfo.json();
+        setIsAdmin(["ADMIN", "COADMIN", "SUPER"].includes(user?.role));
+      } catch {
+        setIsAdmin(false);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  if (isAdmin === null) return <p>Loading...</p>;
+  if (!isAdmin) return <Navigate to="/dashboard" />;
   return <Outlet />;
 }
 
@@ -54,7 +81,6 @@ const router = createBrowserRouter([
     path: "/register",
     element: <RegisterPage />,
   },
-
   // Protected routes
   {
     element: <ProtectRoutes />,
@@ -64,14 +90,15 @@ const router = createBrowserRouter([
         element: <DashboardLayout />,
       },
       {
-        path: "/account",
-        element: <Account />,
-      },
-      {
-        path: "/admin",
-        element: <AdminPage />,
+        path: "/logs/:id",
+        element: <LogPage />,
       },
     ],
+  },
+  // Admin Routes
+  {
+    element: <AdminRoutes />,
+    children: [{ path: "/admin", element: <AdminPage /> }],
   },
 ]);
 
