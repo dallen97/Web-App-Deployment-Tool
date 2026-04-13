@@ -268,10 +268,13 @@ def get_containers(request):
                     else:
                         time_left_str = "Expired"
 
-            hostname = f"{project_name}.{"localhost"}"
+
+            app_domain = config("APP_DOMAIN", default="localhost")
+            hostname = f"{project_name}.{app_domain}"
+
             terminal_hostname = f"terminal.{hostname}"
             container_data.append({
-                "id": c.short_id,
+                "id": project_name,
                 "name": custom_name,
                 "image": image_tag,
                 "status": c.status,
@@ -577,9 +580,6 @@ def approve_teacher(request, target_user_id):
     try:
         target_user = User.objects.get(id=target_user_id)
         target_profile = target_user.profile
-
-        if not target_profile.is_pending_teacher:
-            return JsonResponse({"error": "This user does not have a pending request."}, status=400)
         
         if profile.role in ['ADMIN', 'COADMIN'] and target_profile.organization != profile.organization:
              return JsonResponse({"error": "You can only approve co-admins within your own organization."}, status=403)
@@ -871,6 +871,8 @@ def get_container_logs(request, container_id):
 
 @require_http_methods(["GET"])
 @login_required
+@require_http_methods(["GET"])
+@login_required
 def get_all_containers_admin(request):
     user_profile = getattr(request.user, 'profile', None)
     if not user_profile:
@@ -883,8 +885,6 @@ def get_all_containers_admin(request):
 
     try:
         page_number = request.GET.get('page', 1)
-        users_with_containers = User.objects.filter(container__isnull=False).distinct()
-
         admin_org = None
 
         if user_role in ['ADMIN', 'COADMIN']:
@@ -903,15 +903,15 @@ def get_all_containers_admin(request):
 
         if user_role in ['ADMIN', 'COADMIN']:
             containers = Container.objects.filter(
-                user__in=users_on_page, 
+                user__in=users_on_page,
                 organization=admin_org
             ).select_related('user')
         else:
             containers = Container.objects.filter(user__in=users_on_page).select_related('user')
 
-        organized_data = {user.username: [] for user in users_on_page}
+        organized_data = {user.username: {"user_id": user.id, "role": user.profile.role, "containers": []} for user in users_on_page}
         for container in containers:
-            organized_data[container.user.username].append({
+            organized_data[container.user.username]["containers"].append({
                 "container_id": container.docker_container_id,
                 "name": container.name,
                 "status": container.status,
@@ -919,8 +919,8 @@ def get_all_containers_admin(request):
             })
 
         response_data = [
-            {"username": user, "containers": c_list} 
-            for user, c_list in organized_data.items()
+            {"username": username, "user_id": data["user_id"], "role": data["role"], "containers": data["containers"]}
+            for username, data in organized_data.items()
         ]
 
         org_scope_name = admin_org.name if admin_org else "Global (Super-Admin)"
@@ -940,7 +940,6 @@ def get_all_containers_admin(request):
     except Exception as e:
         print(f"Error in get_all_containers_admin: {str(e)}")
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
-
 @require_http_methods(["POST"])
 @login_required
 def check_container_ready(request, container_id):

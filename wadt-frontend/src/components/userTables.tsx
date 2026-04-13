@@ -5,6 +5,7 @@ import getCookie from "./GetCookie";
 export interface userInfo {
   name: string;
   userId: number;
+  role: string;
   con_name: string | null;
   con_status: string | null;
   con_id: string | null;
@@ -232,7 +233,19 @@ function UserTables({ data, onStop }: UserTablesProps) {
                         >
                           ▶
                         </span>
-                        <strong>{username}</strong>
+                        {rows[0].role === "ADMIN" ? (
+                          <>
+                            <strong style={{ color: "red" }}>{username}</strong>
+                          </>
+                        ) : rows[0].role === "COADMIN" ? (
+                          <>
+                            <strong style={{ color: "yellow" }}>
+                              {username}
+                            </strong>
+                          </>
+                        ) : (
+                          <strong>{username}</strong>
+                        )}
                       </td>
                       <td>
                         {/*Alter the 'container field if member has opened a container */}
@@ -243,22 +256,29 @@ function UserTables({ data, onStop }: UserTablesProps) {
                       <td>{runCount} running</td>
                       <td>—</td>
                       <td>
-                        <Button
-                          size="sm"
-                          variant="outline-warning"
-                          style={{ marginLeft: "5px" }}
-                          onClick={() => makeCoadmin(rows[0])}
-                        >
-                          CO
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline-danger"
-                          style={{ marginLeft: "5px" }}
-                          onClick={() => handleRemoveUser(rows[0])}
-                        >
-                          ✕
-                        </Button>
+                        {rows[0].role !== "ADMIN" ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline-warning"
+                              style={{ marginLeft: "5px" }}
+                              disabled={rows[0].role === "COADMIN"}
+                              onClick={() => makeCoadmin(rows[0])}
+                            >
+                              CO
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline-danger"
+                              style={{ marginLeft: "5px" }}
+                              onClick={() => handleRemoveUser(rows[0])}
+                            >
+                              ✕
+                            </Button>
+                          </>
+                        ) : (
+                          <></>
+                        )}
                       </td>
                     </tr>
 

@@ -5,7 +5,7 @@ import LandingPage from "./pages/LandingPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import DashboardLayout from "./pages/DashboardPage";
-import Account from "./pages/AccountPage";
+import LogPage from "./pages/LogPage";
 import AdminPage from "./pages/AdminPage";
 
 function ProtectRoutes() {
@@ -90,8 +90,8 @@ const router = createBrowserRouter([
         element: <DashboardLayout />,
       },
       {
-        path: "/account",
-        element: <Account />,
+        path: "/logs/:id",
+        element: <LogPage />,
       },
     ],
   },

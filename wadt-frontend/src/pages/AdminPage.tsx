@@ -35,6 +35,7 @@ function AdminPage() {
               {
                 name: user.username,
                 userId: user.user_id,
+                role: user.role,
                 con_name: user.name,
                 con_status: user.status,
                 con_id: user.container_id,
@@ -45,6 +46,7 @@ function AdminPage() {
           : user.containers.map((container: any) => ({
               name: user.username,
               userId: user.user_id,
+              role: user.role,
               con_name: container.name,
               con_status: container.status,
               con_id: container.container_id,

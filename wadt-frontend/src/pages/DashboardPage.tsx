@@ -196,7 +196,10 @@ function DashboardContent() {
                   {containers.map((container, index) => (
                     <li key={index} className="mb-3">
                       <strong>{container.name}</strong>
-                      <Link to={`/logs/${container.id}`}>
+                      <Link
+                        to={`/logs/${container.id}`}
+                        style={{ float: "right" }}
+                      >
                         {" "}
                         <strong> View Logs</strong>
                       </Link>
@@ -233,9 +236,14 @@ function DashboardContent() {
                         })()
                       ) : (
                         <>
-                          Uptime: {container.uptime}
-                          <br />
-                          Time left: {container.time_left}
+                          <p
+                            style={{
+                              marginTop: "10px",
+                              color: "var(--primary-theme1)",
+                            }}
+                          >
+                            <strong>container not running</strong>
+                          </p>
                         </>
                       )}
                     </li>
@@ -246,7 +254,7 @@ function DashboardContent() {
                   className="small_text d-flex justify-content-center align-center"
                   style={{ marginTop: "25px" }}
                 >
-                  No running containers.
+                  Start a container to get started.
                 </p>
               )}
             </Col>
