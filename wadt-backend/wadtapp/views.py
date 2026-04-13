@@ -347,7 +347,6 @@ def current_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
-    #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
@@ -355,17 +354,21 @@ def get_containers(request):
     container_data = []
     max_runtime = timedelta(hours=24)
     max_runtime_seconds = int(max_runtime.total_seconds())
+    app_domain = config("APP_DOMAIN", default="localhost")
+    protocol = "http" if app_domain == "localhost" else "https"
 
     try:
         db_containers = Container.objects.filter(user=request.user)
         
         for db_c in db_containers:
             project_name = db_c.docker_container_id
-            web_container_name = f"{project_name}-web-1"
+    
+            containers = client.containers.list(
+                all=True,
+                filters={"label": [f"com.docker.compose.project={project_name}", "com.docker.compose.service=web"]}
+            )
             
-            try:
-                c = client.containers.get(web_container_name)
-            except docker.errors.NotFound:
+            if not containers:
                 container_data.append({
                     "id": project_name,
                     "name": db_c.name,
@@ -378,17 +381,23 @@ def get_containers(request):
                     "time_left": None
                 })
                 continue
-            
+                
+            c = containers[0]
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
-            db_container = Container.objects.filter(docker_container_id=c.short_id, user=request.user).first()
-            custom_name = db_container.name if db_container else c.name
+            custom_name = db_c.name
             uptime_str = None
             time_left_str = None
             started_at_iso = None    
 
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
+                
+                if '.' in started_at_str:
+                    base, fraction = started_at_str.split('.')
+                    started_at_str = f"{base}.{fraction[:6]}Z"
+                    
                 started_at = parse_datetime(started_at_str)
+                
                 if started_at:
                     started_at_iso = started_at.isoformat()
                     uptime = timezone.now() - started_at
@@ -396,6 +405,7 @@ def get_containers(request):
                     hours, remainder = divmod(uptime.seconds, 3600)
                     minutes, seconds = divmod(remainder, 60)
                     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+                    
                     time_left = max_runtime - uptime
                     if time_left > timedelta(0):
                         days = time_left.days
@@ -404,17 +414,23 @@ def get_containers(request):
                         time_left_str = f"{days}d {hours}h {minutes}m {seconds}s"
                     else:
                         time_left_str = "Expired"
+
+            hostname = f"{project_name}.{app_domain}"
+            terminal_hostname = f"terminal.{hostname}"
+
             container_data.append({
                 "id": c.short_id,
                 "name": custom_name,
                 "image": image_tag,
                 "status": c.status,
-                "external_url": get_container_url(request, c),
+                "external_url": f"{protocol}://{hostname}" if c.status == 'running' else None,
+                "terminal_url": f"{protocol}://{terminal_hostname}" if c.status == 'running' else None,
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
                 "time_left": time_left_str
             })
+            
         return JsonResponse(container_data, safe=False)
     except APIError:
          return JsonResponse({"error": "Failed to fetch containers"}, status=500)
@@ -588,30 +604,28 @@ def stop_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def restart_container(request, container_id):
-    #used if somebody needs to refresh container to apply changes
-    client = get_docker_client()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)
     try:
-        container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response: 
-            return error_response
-
-        container.restart()
-
         db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+    except Container.DoesNotExist:
+        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
+
+    project_name = db_container.docker_container_id
+    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
+
+    try:
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.restart()
+            
         db_container.status = "RUN"
         db_container.save()
-
         log_user_action(request.user, f"Refreshed container '{db_container.name}'", db_container)
 
-        return JsonResponse({"status": "success", "message": f"Container {container_id} restarted."})
+        return JsonResponse({"status": "success", "message": f"Project {project_name} restarted."})
     except Exception as e:
         print(f"Error in restart_container: {str(e)}")
-        return JsonResponse({"error": "An internal error occured."}, status=500)
-    finally:
-        client.close()
-
+        return JsonResponse({"error": "An internal error occurred."}, status=500)
+    
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
@@ -945,15 +959,15 @@ def get_container_logs(request, container_id):
     container_record = get_object_or_404(Container, docker_container_id=container_id)
     user_profile = getattr(request.user, 'profile', None)
     user_role = user_profile.role if user_profile else 'STUDENT'
-
     is_authorized = False
+
     if user_role == 'SUPER':
         is_authorized = True 
     elif user_role == 'ADMIN' and user_profile.organization and container_record.organization == user_profile.organization:
         is_authorized = True
     elif container_record.user == request.user:
         is_authorized = True
-            
+        
     if not is_authorized:
         return JsonResponse({"error": "Unauthorized."}, status=403)
 
@@ -970,23 +984,32 @@ def get_container_logs(request, container_id):
     client = get_docker_client()
     if client:
         try:
-            docker_container = client.containers.get(container_id)
-            raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
-            log_lines = raw_logs.decode('utf-8').split('\n')
+            containers = client.containers.list(
+                all=True,
+                filters={"label": [f"com.docker.compose.project={container_id}", "com.docker.compose.service=web"]}
+            )
+            
+            if containers:
+                docker_container = containers[0]
+                raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
+                log_lines = raw_logs.decode('utf-8').split('\n')
 
-            noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
+                noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
 
-            for line in log_lines:
-                if not line.strip(): continue
-                if any(noise in line for noise in noise_filters): continue
+                for line in log_lines:
+                    if not line.strip(): continue
+                    if any(noise in line for noise in noise_filters): continue
 
-                parts = line.split(' ', 1)
-                if len(parts) == 2:
-                    unified_logs.append({
-                        "timestamp": parts[0], 
-                        "source": "CONTAINER",
-                        "message": parts[1]    
-                    })
+                    parts = line.split(' ', 1)
+                    if len(parts) == 2:
+                        unified_logs.append({
+                            "timestamp": parts[0], 
+                            "source": "CONTAINER",
+                            "message": parts[1]    
+                        })
+            else:
+                print(f"No web container found for project: {container_id}")
+                
         except Exception as e:
             print(f"Docker log error: {e}")
         finally:
