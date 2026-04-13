@@ -156,7 +156,8 @@ def register_user(request):
             cognito.sign_up(
                 ClientId=CLIENT_ID,
                 Username=username,
-                Password=password
+                Password=password,
+                UserAttributes=[{'Name': 'email', 'Value': f'{username}@placeholder.com'}]
             )
             cognito.admin_confirm_sign_up(
                 UserPoolId=USER_POOL_ID,
@@ -261,7 +262,7 @@ def setup_mfa(request):
     data = json.loads(request.body) if request.body else {}
     username = request.user.username if request.user.is_authenticated else data.get('username')
 
-    if not access_token:
+    if not access_token and not setup_session:
         return JsonResponse({"error": "AWS Token missing. Please log out and back in."}, status=401)
 
     try:
@@ -347,6 +348,7 @@ def current_user(request):
 @require_http_methods(["GET"])
 @login_required
 def get_containers(request):
+    #now returns containers only relevant to the current user, will implement one for all containers later
     client = get_docker_client()
     if not client:
         return JsonResponse({"error": "Docker client not available"}, status=503)
@@ -419,7 +421,7 @@ def get_containers(request):
             terminal_hostname = f"terminal.{hostname}"
 
             container_data.append({
-                "id": c.short_id,
+                "id": project_name,
                 "name": custom_name,
                 "image": image_tag,
                 "status": c.status,

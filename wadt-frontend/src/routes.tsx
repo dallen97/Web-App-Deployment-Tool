@@ -7,6 +7,7 @@ import RegisterPage from "./pages/RegisterPage";
 import DashboardLayout from "./pages/DashboardPage";
 import Account from "./pages/AccountPage";
 import AdminPage from "./pages/AdminPage";
+import LogPage from "./pages/LogPage";
 
 function ProtectRoutes() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
@@ -92,6 +93,10 @@ const router = createBrowserRouter([
       {
         path: "/account",
         element: <Account />,
+      },
+      {
+      path: "/logs/:id",
+      element: <LogPage />,
       },
     ],
   },

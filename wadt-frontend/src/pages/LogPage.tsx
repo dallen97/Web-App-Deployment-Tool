@@ -21,6 +21,7 @@ function LogPage(){
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [activeFilter, setActiveFilter] = useState<string>("ALL"); // Filter for logs
   const [searchQuery, setSearchQuery] = useState<string>(""); // Search bar query
+  const [logCache, setLogCache] = useState<{[id: string]: {timestamp: string; source: string; message: string}[]}>({}); // cache of logs incase they were stopped
 
 
   const { id: selectedContainerId } = useParams(); // Track selected container from dashboard
@@ -56,26 +57,30 @@ function LogPage(){
               "X-CSRFToken": getCookie("wadt_csrftoken") || "",
           },
       });
-      if (response.ok) {
-          // Update action buttons when container stopped
-          setCurrentContainer(null);
-          setLogs(prev => [...prev, {
-              timestamp: new Date().toISOString(),
-              source: "SYSTEM",
-              message: `Container ${currentContainer.name} was stopped.`
-          }]);
-          setCurrentContainer(null);
-          window.dispatchEvent(new Event("wadt:containers-changed"));
-      }
-      else 
+        if (response.ok) {
+            // CHANGED: write stopped message into cache for this container
+            setLogCache(prev => ({
+                ...prev,
+                [currentContainer.id]: [
+                    ...(prev[currentContainer.id] ?? []),
+                    {
+                        timestamp: new Date().toISOString(),
+                        source: "SYSTEM",
+                        message: `Container ${currentContainer.name} was stopped.`
+                    }
+                ]
+            }));
+            window.dispatchEvent(new Event("wadt:containers-changed"));
+        }
+        else 
           console.error("Failed to stop container");
       
-  } catch (err) {
-      console.error("Error stopping container:", err);
-  } finally {
-      setIsLoading(false);
-  }
-  };
+    } catch (err) {
+        console.error("Error stopping container:", err);
+    } finally {
+        setIsLoading(false);
+    }
+    };
 
   // Call api for reset container
   const handleReset = async () => {
@@ -178,34 +183,38 @@ function LogPage(){
   }, []);
 
   // Log filtering
-  const filteredLogs = (activeFilter === "ALL" ? logs :
+  const currentLogs = logCache[currentContainer?.id ?? ""] ?? []
+  const filteredLogs = (activeFilter === "ALL" ? currentLogs :
       logs.filter(log => log.source === activeFilter))
   .filter(log => searchQuery === "" || log.message.toLowerCase().includes(searchQuery.toLowerCase()))
   .slice().reverse();
 
-  // update logs when current container changes
-  useEffect(() => {
-      if (!currentContainer) return;
-
       // fetch logs immediately when container is selected
-      const fetchLogs = () => {
-          fetch(`/api/get_container_logs/${currentContainer.id}/`, { credentials: "include" })
-          .then(res => res.json())
-          .then(data => setLogs(
-              (data.logs ?? [])
-                  .filter((log: any) => log.message.trim() !== "") // Hide empty logs
-                  .filter((log: any) => !log.message.includes("was stopped.")) // remove duplicate stopped message            
-                  // Apply filter for finding errors in logs
-                  .map((log: any) => ({
-                      ...log,
-                      source: log.message.toLowerCase().includes("error") || log.message.toLowerCase().includes("exception") ||log.message.toLowerCase().includes("fatal")? "ERROR" : log.source}))))
-      };
+      useEffect(() => {
+    if (!currentContainer) return;
 
-      fetchLogs();
-      const intervalId = setInterval(fetchLogs, 5000); // update every 5 seconds
+    const fetchLogs = () => {
+        fetch(`/api/get_container_logs/${currentContainer.id}/`, { credentials: "include" })
+        .then(res => res.json())
+        .then(data => {
+            const processedLogs = (data.logs ?? [])
+                .filter((log: any) => log.message.trim() !== "")
+                .filter((log: any) => !log.message.includes("was stopped."))
+                .map((log: any) => ({
+                    ...log,
+                    source: log.message.toLowerCase().includes("error") || 
+                            log.message.toLowerCase().includes("exception") || 
+                            log.message.toLowerCase().includes("fatal") ? "ERROR" : log.source
+                }));
+            // save to cache
+            setLogCache(prev => ({ ...prev, [currentContainer.id]: processedLogs }));
+        });
+    };
 
-      return () => clearInterval(intervalId); // stop  when container changes
-  }, [currentContainer]);
+    fetchLogs();
+    const intervalId = setInterval(fetchLogs, 5000);
+    return () => clearInterval(intervalId);
+}, [currentContainer])
 
   return (
   // Back to dashboard, Title, Container dropwdown
