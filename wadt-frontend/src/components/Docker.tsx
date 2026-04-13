@@ -1,17 +1,17 @@
 import { useEffect, useState } from "react";
 import Spinner from "react-bootstrap/Spinner";
-import Alert from "react-bootstrap/Alert";
-import { Container, Row, Col, Button } from "react-bootstrap";
-
+import { Container, Row, Col, Button, Alert } from "react-bootstrap";
 
 export interface DockerProps {
   name: string;
   startlink: string;
   stoplink: string;
   restartlink: string;
+  runningContainers: string;
   /** Catalog key for POST /api/start_container/ (e.g. pygoat, juice-shop). */
   appKey: string;
-  imageName?: string;
+  /** Docker image name (e.g. pygoat:latest). */
+  imageName: string;
 }
 
 export interface DockerList {
@@ -105,7 +105,11 @@ const Docker = ({ docker = [] }: DockerList) => {
   }, []);
 
   // 1. Start Container
-  const handleStart = async (appKey: string, containerName: string) => {
+  const handleStart = async (
+    appKey: string,
+    imageName: string,
+    containerName: string,
+  ) => {
     setStartErrors((prev) => {
       const next = { ...prev };
       delete next[containerName];
@@ -123,6 +127,7 @@ const Docker = ({ docker = [] }: DockerList) => {
         },
         body: JSON.stringify({
           app_key: appKey,
+          imageName: imageName,
           name: containerName,
         }),
       });
@@ -133,8 +138,6 @@ const Docker = ({ docker = [] }: DockerList) => {
         console.log("Container started, waiting for port...", data.id);
         window.dispatchEvent(new Event("wadt:containers-changed"));
         pollForReadiness(data.id, containerName);
-        // Store the container ID on start
-        // Store the container ID on start
         setContainerIds((prev) => ({ ...prev, [containerName]: data.id }));
       } else {
         console.error("Start failed:", data);
@@ -270,17 +273,14 @@ const Docker = ({ docker = [] }: DockerList) => {
     setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
 
     try {
-      const response = await fetch(
-        `/api/restart_container/${containerId}/`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            "Content-Type": "application/json",
-            "X-CSRFToken": getCookie("wadt_csrftoken") || "",
-          },
+      const response = await fetch(`/api/restart_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
         },
-      );
+      });
       const data = await response.json();
 
       if (response.ok) {
@@ -297,32 +297,58 @@ const Docker = ({ docker = [] }: DockerList) => {
     }
   };
 
+  // 6. Reset container
+  const handleReset = async (containerId: string) => {
+    try {
+      const response = await fetch(`/api/reset_container/${containerId}/`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+        },
+      });
+      const data = await response.json();
+      if (response.ok)
+        window.dispatchEvent(new Event("wadt:containers-changed"));
+      else console.error("Failed to reset container:", data.error);
+    } catch (err) {
+      console.error("Error resetting container:", err);
+    }
+  };
+
   return (
     <>
-      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)"}}>
+      <div style={{ fontSize: "20px", color: "rgb(0, 170, 255)" }}>
         {docker.map((d, i) => (
-          <div key={i} style={{ marginTop: "35px" }} >
+          <div key={i} style={{ marginTop: "35px" }}>
             <Container className="mb-3">
               <Row className="align-items-center">
-                <Col>
-                  <strong>{d.name} container</strong>
+                <Col md={3}>
+                  <strong>{d.name}</strong>
                 </Col>
-                
+
                 <Col className="text-end">
                   {/* 1. IDLE STATE: Show Start Button */}
                   {(!containerStatus[d.name] ||
                     containerStatus[d.name] === "idle") && (
                     <Button
-                      variant="primary"
-                      onClick={() => handleStart(d.appKey, d.name)}
+                      className="start_button"
+                      onClick={() => handleStart(d.appKey, d.imageName, d.name)}
                       style={{ marginLeft: "10px" }}
+                      size="sm"
                     >
                       Start
                     </Button>
                   )}
                   {/* 2. LOADING STATE: Show Spinner */}
                   {containerStatus[d.name] === "loading" && (
-                    <Button variant="primary" disabled style={{ marginLeft: "10px" }}>
+                    <Button
+                      variant="primary"
+                      disabled
+                      style={{ marginLeft: "10px" }}
+                      size="sm"
+                    >
                       <Spinner
                         as="span"
                         animation="border"
@@ -336,63 +362,81 @@ const Docker = ({ docker = [] }: DockerList) => {
                   {/* 3. READY STATE: Show Open App Button */}
                   {containerStatus[d.name] === "ready" && (
                     <>
-                    <Button
-                      variant="success"
-                      onClick={() => handleView(d.name)}
-                      style={{ marginLeft: "10px" }}
-                    >
-                      Open App
-                    </Button>
-                    <Button
-                      variant="dark"
-                      onClick={() => {
-                        const tUrl = terminalUrls[d.name];
-                        if (tUrl) window.open(tUrl, "_blank");
-                      }}
-                      style={{ marginLeft: "10px" }}
-                    >
-                      Terminal
-                    </Button>
-                  </>
+                      <Button
+                        variant="success"
+                        onClick={() => handleView(d.name)}
+                        style={{ marginLeft: "10px" }}
+                        size="sm"
+                      >
+                        Open App
+                      </Button>
+                      <Button
+                        variant="dark"
+                        onClick={() => {
+                          const tUrl = terminalUrls[d.name];
+                          if (tUrl) window.open(tUrl, "_blank");
+                        }}
+                        style={{ marginLeft: "10px" }}
+                        size="sm"
+                      >
+                        Terminal
+                      </Button>
+                    </>
                   )}
-                  {/* Stop Container*/}
-                  <Button
-                    variant="danger"
-                    onClick={() => handleStop(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Stop
-                  </Button>
-                  {/*Restart Contaienr*/}
-                  <Button
-                    variant="warning"
-                    onClick={() => handleRestart(d.name)}
-                    style={{ marginLeft: "10px" }}
-                  >
-                    Restart
-                  </Button>
+
+                  {/* 4. Stop, Restart, Reset when running */}
+                  {(containerStatus[d.name] === "loading" ||
+                    containerStatus[d.name] === "ready") && (
+                    <>
+                      <Button
+                        variant="danger"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleStop(d.name)}
+                        size="sm"
+                      >
+                        Stop
+                      </Button>
+                      <Button
+                        variant="warning"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleRestart(d.name)}
+                        size="sm"
+                      >
+                        Restart
+                      </Button>
+                      <Button
+                        variant="info"
+                        style={{ marginLeft: "10px" }}
+                        onClick={() => handleReset(containerIds[d.name])}
+                        size="sm"
+                      >
+                        Reset
+                      </Button>
+                    </>
+                  )}
+                </Col>
+              </Row>
+
+              {startErrors[d.name] && (
+                <Row>
+                  <Col>
+                    <Alert
+                      variant="danger"
+                      className="mt-2 mb-0 py-2"
+                      dismissible
+                      onClose={() =>
+                        setStartErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[d.name];
+                          return next;
+                        })
+                      }
+                    >
+                      {startErrors[d.name]}
+                    </Alert>
                   </Col>
                 </Row>
-                {startErrors[d.name] && (
-                  <Row>
-                    <Col>
-                      <Alert
-                        variant="danger"
-                        className="mt-2 mb-0 py-2"
-                        dismissible
-                        onClose={() =>
-                          setStartErrors((prev) => {
-                            const next = { ...prev };
-                            delete next[d.name];
-                            return next;
-                          })
-                        }
-                      >
-                        {startErrors[d.name]}
-                      </Alert>
-                    </Col>
-                  </Row>
-                )}
+              )}
             </Container>
           </div>
         ))}
@@ -402,6 +446,5 @@ const Docker = ({ docker = [] }: DockerList) => {
     </>
   );
 };
-
 
 export default Docker;

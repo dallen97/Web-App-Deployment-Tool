@@ -108,3 +108,5 @@ Create the network for Docker containers to run in
 Run the following to bring up the traefik container
 
 `$ docker compose -f docker-compose.traefik.yml up -d`
+
+Make sure to create a `tmp` folder in `wadt-backend/wadtapp/tmp` to hold the dynamically generated yaml files

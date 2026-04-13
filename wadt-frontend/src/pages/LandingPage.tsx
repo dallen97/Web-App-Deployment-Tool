@@ -5,13 +5,6 @@ import Footer from "../components/Footer.tsx";
 
 const HeaderComponent = Header as unknown as React.ComponentType<any>;
 
-/**
-  * Things to add: 
-  * Footer
-  * Themes component
-  * 
- */
-
 function LandingPage() {
   return (
     <div className="">
@@ -23,25 +16,28 @@ function LandingPage() {
       <br />
       <br />
       <div style={{ marginTop: "25px" }}>
-        <h1 className="display-2 font-monospace text-center">
+        <h1 className="d-flex align-items-center justify-content-center">
           WEB APP DEPLOYMENT TOOL
         </h1>
       </div>
       <div style={{ marginTop: "200px" }}>
-        <p className="lead font-monospace text-center">
+        <p className="small_text text-center">
           The WADT is a software that will provide you with a simulated
           environment to hone your
           <br />
-          <p className="lead font-monospace text-center">
+          <p className="small_text text-center">
             <b>Cyber Security Skills</b>
           </p>
         </p>
       </div>
       <div>
         <div style={{ marginTop: "600px" }}>
-          <h1 className="display-6 font-monospace text-center" style={{ marginBottom: "150px" }}>
+          <h3
+            className="d-flex justify-content-center"
+            style={{ marginBottom: "150px" }}
+          >
             Develop Your Skills Here!
-          </h1>
+          </h3>
           <div
             style={{
               margin: "0 auto",

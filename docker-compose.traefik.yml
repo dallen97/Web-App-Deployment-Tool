@@ -6,6 +6,7 @@ services:
     command:
       - "--log.level=DEBUG"
       - "--api.dashboard=true"
+      - "--api.insecure=true"
       - "--providers.docker=true"
       - "--providers.file.filename=/etc/traefik/dynamic.yml"
       - "--providers.docker.network=wadt_sandbox_network"

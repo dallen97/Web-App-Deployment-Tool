@@ -8,6 +8,10 @@ import uuid
 import os
 import threading
 import yaml
+import subprocess
+import boto3
+from django.conf import settings
+from .catalog import APP_CATALOG
 from python_on_whales import DockerClient
 from docker.errors import DockerException, NotFound, ImageNotFound, APIError 
 from django.middleware.csrf import get_token 
@@ -16,7 +20,7 @@ from django.http import JsonResponse
 from django.contrib.auth.models import User 
 from django.contrib.auth import authenticate, login, logout 
 from django.views.decorators.http import require_http_methods 
-from django.contrib.auth.decorators import login_required 
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.csrf import ensure_csrf_cookie 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -25,15 +29,13 @@ from django.db import close_old_connections
 from datetime import timedelta
 from decouple import config
 from .models import Container, Organization, UserProfile, ActionLog
-from .catalog import APP_CATALOG
 
-# Where the YAML files are stored
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-YAML_DIR = os.path.join(CURRENT_DIR, "tmp")
+cognito = boto3.client('cognito-idp', region_name=config('AWS_DEFAULT_REGION'))
+CLIENT_ID = config('COGNITO_CLIENT_ID')
+USER_POOL_ID = config('COGNITO_USER_POOL_ID')
 
-# Ensure the directory exists when Django starts
-if not os.path.exists(YAML_DIR):
-    os.makedirs(YAML_DIR)
+YAML_DIR = os.path.join(settings.BASE_DIR, 'media', 'compose_files')
+os.makedirs(YAML_DIR, exist_ok=True)
 
 # Seconds to wait when checking if container HTTP service is up
 CONTAINER_READINESS_TIMEOUT = 2
@@ -60,7 +62,10 @@ ALLOWED_VULN_IMAGES = [
     "pygoat/pygoat",
     "bkimminich/juice-shop",
     "grafana/grafana:8.3.0",
-    "vulnerables/web-dvwa"
+    "vulnerables/web-dvwa",
+    "tiredful-api",
+    "shellshock",
+    "apache-struts"
 ]
 
 def get_secure_container_config(user_id_str, container_name):
@@ -267,13 +272,27 @@ def register_user(request):
         if User.objects.filter(username=username).exists():
             return JsonResponse({'error': 'Username unavailable'}, status=409)
         
-        user = User.objects.create_user(username=username, password=password)
-        log_user_action(user, "Created a new account")
+        user = User(username=username)
+        user.set_unusable_password() 
+        user.save()
 
+        try:
+            cognito.sign_up(
+                ClientId=CLIENT_ID,
+                Username=username,
+                Password=password
+            )
+            cognito.admin_confirm_sign_up(
+                UserPoolId=USER_POOL_ID,
+                Username=username
+            )
+        except Exception as e:
+            user.delete()
+            return JsonResponse({'error': f'AWS Sync Error: {str(e)}'}, status=500)
+
+        log_user_action(user, "Created a new account")
         return JsonResponse({'status': 'Success', 'message': 'User created successfully', 'user_id': user.id}, status=201)
 
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
@@ -289,20 +308,143 @@ def login_user(request):
         if not all([username, password]):
             return JsonResponse({'error': 'Username and Password Required'}, status=400)
         
-        user = authenticate(request, username=username, password=password)
+        try:
+            response = cognito.initiate_auth(
+                ClientId=CLIENT_ID,
+                AuthFlow='USER_PASSWORD_AUTH',
+                AuthParameters={'USERNAME': username, 'PASSWORD': password}
+            )
 
-        if user is not None:
-            #creates session id, that's sent back to browser as a cookie
-            login(request, user)
-            log_user_action(user, "Logged in")
-            return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
-        else:
+            if response.get('ChallengeName') == 'SOFTWARE_TOKEN_MFA':
+                return JsonResponse({
+                    "status": "MFA_REQUIRED",
+                    "session": response['Session'],
+                    "message": "Please enter your 6-digit authenticator code."
+                })
+            
+            elif response.get('ChallengeName') == 'MFA_SETUP':
+                request.session['cognito_setup_session'] = response['Session']
+                return JsonResponse({
+                    "status": "MFA_SETUP_REQUIRED",
+                    "message": "You must configure Multi-Factor Authentication to continue."
+                })
+
+            user = get_object_or_404(User, username=username)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+            request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+
+            if user is not None:
+                request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+                log_user_action(user, "Logged in")
+                return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
+            else:
+                return JsonResponse({'error': 'Credentials invalid.'}, status=401)
+
+        except cognito.exceptions.NotAuthorizedException:
             return JsonResponse({'error': 'Invalid credentials.'}, status=401)
-
-    except json.JSONDecodeError:
-        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+            
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def verify_mfa_login(request):
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        mfa_code = data.get('mfaCode')
+        session = data.get('session')
+
+        response = cognito.respond_to_auth_challenge(
+            ClientId=CLIENT_ID,
+            ChallengeName='SOFTWARE_TOKEN_MFA',
+            Session=session,
+            ChallengeResponses={
+                'USERNAME': username,
+                'SOFTWARE_TOKEN_MFA_CODE': mfa_code
+            }
+        )
+
+        user = get_object_or_404(User, username=username)
+        login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+        request.session['cognito_access_token'] = response['AuthenticationResult']['AccessToken']
+        
+        log_user_action(user, "Logged in with MFA")
+        return JsonResponse({'status': 'success', 'message': 'Login successful.', 'user_id': user.id, 'username': user.username})
+
+    except cognito.exceptions.CodeMismatchException:
+        return JsonResponse({"error": "Invalid MFA code. Please try again."}, status=401)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def setup_mfa(request):
+    access_token = request.session.get('cognito_access_token')
+    setup_session = request.session.get('cognito_setup_session')
+    data = json.loads(request.body) if request.body else {}
+    username = request.user.username if request.user.is_authenticated else data.get('username')
+
+    if not access_token:
+        return JsonResponse({"error": "AWS Token missing. Please log out and back in."}, status=401)
+
+    try:
+        if access_token:
+            response = cognito.associate_software_token(AccessToken=access_token)
+        else:
+            response = cognito.associate_software_token(Session=setup_session)
+            request.session['cognito_setup_session'] = response['Session']
+
+        secret_code = response['SecretCode']
+        qr_uri = f"otpauth://totp/WADT_Deployment:{username}?secret={secret_code}&issuer=WADT_Deployment"
+
+        return JsonResponse({"status": "SUCCESS", "secretCode": secret_code, "qrCodeUri": qr_uri})
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
+
+
+@require_http_methods(["POST"])
+def verify_mfa_setup(request):
+    try:
+        data = json.loads(request.body)
+        mfa_code = data.get('mfaCode')
+        username = data.get('username') 
+        access_token = request.session.get('cognito_access_token')
+        setup_session = request.session.get('cognito_setup_session')
+
+        if access_token:
+            cognito.verify_software_token(AccessToken=access_token, UserCode=mfa_code, FriendlyDeviceName='WADT_Authenticator')
+            cognito.set_user_mfa_preference(AccessToken=access_token, SoftwareTokenMfaSettings={'Enabled': True, 'PreferredMfa': True})
+            
+            log_user_action(request.user, "Enabled Multi-Factor Authentication")
+            return JsonResponse({"status": "SUCCESS", "message": "MFA successfully enabled."})
+
+        elif setup_session:
+            verify_response = cognito.verify_software_token(Session=setup_session, UserCode=mfa_code, FriendlyDeviceName='WADT_Authenticator')
+        
+            auth_response = cognito.respond_to_auth_challenge(
+                ClientId=CLIENT_ID,
+                ChallengeName='MFA_SETUP',
+                Session=verify_response['Session'],
+                ChallengeResponses={'USERNAME': username}
+            )
+
+            user = get_object_or_404(User, username=username)
+            login(request, user, backend='django.contrib.auth.backends.ModelBackend')
+
+            request.session['cognito_access_token'] = auth_response['AuthenticationResult']['AccessToken']
+            del request.session['cognito_setup_session']
+            
+            log_user_action(user, "Enabled MFA and Logged In")
+            return JsonResponse({"status": "SUCCESS", "message": "MFA enabled and logged in.", "user_id": user.id})
+            
+        else:
+             return JsonResponse({"error": "AWS Token missing."}, status=401)
+
+    except cognito.exceptions.EnableSoftwareTokenMFAException:
+        return JsonResponse({"error": "Invalid code provided for setup."}, status=400)
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=500)
 
 @require_http_methods(["POST"])
 @login_required
@@ -313,9 +455,18 @@ def logout_user(request):
 
 @login_required
 def current_user(request):
+    profile = getattr(request.user, 'profile', None)
+    org = profile.organization if profile else None
+    
     return JsonResponse({
         "username": request.user.username,
-    }) 
+        "role": profile.role if profile else "STUDENT",
+        "organization": {
+            "id": org.id,
+            "name": org.name,
+            "org_code": org.org_code,
+        } if org else None
+    })
 
 @require_http_methods(["GET"])
 @login_required
@@ -331,25 +482,37 @@ def get_containers(request):
     protocol = "http" if app_domain == "localhost" else "https"
 
     try:
-        # Loop through the Compose Projects the DB thinks are running
-        db_containers = Container.objects.filter(user=request.user, status="RUN")
+        db_containers = Container.objects.filter(user=request.user)
         
         for db_c in db_containers:
             project_name = db_c.docker_container_id
+    
+            containers = client.containers.list(
+                all=True,
+                filters={"label": [f"com.docker.compose.project={project_name}", "com.docker.compose.service=web"]}
+            )
             
-            # Compose names the primary service container: <project_name>-web-1
-            web_container_name = f"{project_name}-web-1"
-            
-            try:
-                c = client.containers.get(web_container_name)
-            except docker.errors.NotFound:
-                continue # Skip if the container died but the DB still says RUN
-            
+            if not containers:
+                container_data.append({
+                    "id": project_name,
+                    "name": db_c.name,
+                    "image": "unknown",
+                    "status": "stopped",
+                    "external_url": None,
+                    "terminal_url": None,
+                    "started_at": None,
+                    "uptime": None,
+                    "time_left": None
+                })
+                continue
+                
+            c = containers[0]
             image_tag = c.image.tags[0] if c.image.tags else 'unknown'
+            custom_name = db_c.name
             uptime_str = None
             time_left_str = None
-            started_at_iso = None
-            
+            started_at_iso = None    
+
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
                 
@@ -407,12 +570,12 @@ def get_containers(request):
                 frontend_status = "starting"
 
             container_data.append({
-                "id": project_name,
-                "name": db_c.name,
+                "id": c.short_id,
+                "name": custom_name,
                 "image": image_tag,
-                "status": frontend_status, # Let React know it's starting
-                "external_url": external_url,
-                "terminal_url": terminal_url,
+                "status": c.status,
+                "external_url": f"{protocol}://{hostname}" if c.status == 'running' else None,
+                "terminal_url": f"{protocol}://{terminal_hostname}" if c.status == 'running' else None,
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
@@ -421,9 +584,8 @@ def get_containers(request):
             
             
         return JsonResponse(container_data, safe=False)
-    except Exception as e:
-        print(f"Error in get_containers: {e}")
-        return JsonResponse({"error": "Failed to fetch containers"}, status=500)
+    except APIError:
+         return JsonResponse({"error": "Failed to fetch containers"}, status=500)
     finally:
         client.close()
 
@@ -432,34 +594,57 @@ def get_containers(request):
 def start_container(request):
     try:
         body = json.loads(request.body)
+        print(f"INCOMING START REQUEST: {body}")
         
-        # We now look up the app using the key from catalog.py (e.g., "pygoat")
-        app_key = body.get('app_key') 
+        image_name = body.get('imageName')
 
-        if app_key not in APP_CATALOG:
-            return JsonResponse({"error": "Unauthorized or unknown application requested."}, status=403)
+        if image_name not in ALLOWED_VULN_IMAGES:
+            return JsonResponse({"error": "Unauthorized image requested."}, status=403)
 
-        app_name = body.get('name', app_key) # Custom name from user, defaults to app_key
+        app_name = body.get('name')
         user_id_str = str(request.user.id)
-        app_info = APP_CATALOG[app_key]
+        
+        IMAGE_TO_KEY = {
+            "pygoat/pygoat": "pygoat",
+            "bkimminich/juice-shop": "juice-shop",
+            "grafana/grafana:8.3.0": "grafana",
+            "vulnerables/web-dvwa": "web-dvwa",
+            "tiredful-api": "tiredful-api",
+            "shellshock": "shellshock",
+            "apache-struts": "apache-struts"
+        }
 
-        # 1. Database & Quota Check
-        db_container, created = Container.objects.get_or_create(
-            user=request.user,
-            name=app_name,
-            defaults={
-                'description': f"Sandbox for {app_key}",
-                'status': "CREAT",
-                'docker_container_id': "" # This now stores the Compose Project Name
-            }
-        )
+        app_key = body.get('appKey')
+        if not app_key:
+            app_key = IMAGE_TO_KEY.get(image_name)
 
-        other_containers_count = Container.objects.filter(user=request.user).exclude(name=app_name).count()
+        app_info = APP_CATALOG.get(app_key)
+        
+        if not app_info:
+            print(f"❌ FAILED TO FIND CATALOG INFO FOR KEY: '{app_key}'")
+            return JsonResponse({"error": "Invalid application catalog key."}, status=400)
+        
+        db_container = Container.objects.filter(
+            user=request.user, 
+            description=f"Sandbox for {app_key}"
+        ).first()
+
+        if not db_container:
+            db_container = Container.objects.create(
+                user=request.user,
+                name=app_name,
+                description=f"Sandbox for {app_key}",
+                status="CREAT",
+                docker_container_id=""
+            )
+
+        other_containers_count = Container.objects.filter(
+            user=request.user
+        ).exclude(id=db_container.id).count()
+
         if other_containers_count >= MAX_CONTAINERS:
-             return JsonResponse({"error": "Quota exceeded."}, status=429)
+             return JsonResponse({"error": "Quota exceeded. 10 containers are already owned by this account"}, status=429)
 
-        # 2. Generate Project Details
-        # If it already has a project name, reuse it; otherwise, generate a new one
         existing_id = db_container.docker_container_id
         
         if existing_id and existing_id.startswith(f"wadt-user{request.user.id}-{app_key}"):
@@ -473,10 +658,8 @@ def start_container(request):
         network_name = f"{project_name}_default"
         app_domain = config("APP_DOMAIN", default="localhost")
 
-        # 3. Build the YAML Dictionary
         compose_dict = {"services": {}}
         
-        # Build the vulnerable web app service
         app_port = app_info.get("port", "80")
         router_rule = f"Host(`{project_name}.{app_domain}`)"
         
@@ -489,15 +672,13 @@ def start_container(request):
                 f"traefik.http.routers.{project_name}.entrypoints": "web",
                 f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
                 "traefik.docker.network": network_name,
-                "wadt.user_id": user_id_str # Keep tracking the user
+                "wadt.user_id": user_id_str
             }
         }
 
-        # Add optional fields if they exist in the catalog
         if "environment" in app_info: compose_dict["services"]["web"]["environment"] = app_info["environment"]
         if "cap_add" in app_info: compose_dict["services"]["web"]["cap_add"] = app_info["cap_add"]
 
-        # Build the Attacker Terminal service
         terminal_info = APP_CATALOG["attacker-terminal"]
         compose_dict["services"]["attacker"] = {
             "image": terminal_info["image"],
@@ -513,9 +694,15 @@ def start_container(request):
         if "command" in terminal_info:
             compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
 
-        # 4. Save YAML to Disk
-        with open(file_path, 'w') as f:
-            yaml.dump(compose_dict, f)
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.start()
+        else:
+            with open(file_path, 'w') as f:
+                yaml.dump(compose_dict, f)
+            
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.up(detach=True)
 
         # 5. Mark as starting and run compose work asynchronously.
         db_container.status = "STARTING"
@@ -561,7 +748,6 @@ def stop_container(request, container_id):
 
     project_name = db_container.docker_container_id
     file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
-    network_name = f"{project_name}_default"
 
     threading.Thread(
         target=_stop_compose_project_async,
@@ -620,58 +806,55 @@ def restart_container(request, container_id):
 @require_http_methods(["POST"])
 @login_required
 def reset_container(request, container_id):
-    client = docker.from_env()
-    if not client:
-        return JsonResponse({"error": "Docker client not available"}, status=503)
-    
     try:
-        old_container, error_response = _get_user_container(client, request.user, container_id)
-        if error_response:
-            return error_response
+        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+    except Container.DoesNotExist:
+        return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
 
-        container_name = old_container.name
-        image_name = old_container.image.tags[0] # FIX 2: Added the 's' to tags
-        labels = old_container.labels
+    project_name = db_container.docker_container_id
+    file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
 
-        old_container.stop(timeout=5)
-        old_container.remove(force=True)
+    try:
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
 
-        time.sleep(2)
+            network_name = f"{project_name}_default"
+            subprocess.run(
+               ["docker", "network", "disconnect", network_name, "web-app-deployment-tool-traefik-1"],
+               capture_output=True
+            )
 
-        new_container = client.containers.run(
-            image_name,
-            name=container_name,
-            labels=labels,
-            detach=True,
-            network='wadt_sandbox_network'
-        )
+            custom_docker.compose.down(volumes=True, remove_orphans=True)
+            time.sleep(2)
+            custom_docker.compose.up(detach=True)
 
-        db_record = Container.objects.get(docker_container_id=container_id, user=request.user)
-        db_record.docker_container_id = new_container.short_id
-        db_record.status = "RUN"
-        db_record.save()
+            subprocess.run(
+               ["docker", "network", "connect", network_name, "web-app-deployment-tool-traefik-1"],
+               capture_output=True
+            )
+        else:
+            return JsonResponse({"error": "YAML configuration missing. Cannot reset."}, status=404)
 
-        log_user_action(request.user, f"Reset container '{db_record.name}'", db_record)
+        db_container.status = "STARTING"
+        db_container.save()
+        log_user_action(request.user, f"Reset composed project '{db_container.name}'", db_container)
 
-        return JsonResponse({
-            'status': 'success', 
-            'message': 'Container reset successfully.',
-            'new_id': new_container.short_id
-        })
-        
-    except docker.errors.NotFound:
-        return JsonResponse({'error': 'Original container not found in Docker.'}, status=404)
+        return JsonResponse({"status": "success", "message": f"Project {project_name} reset."})
     except Exception as e:
         print(f"Error in reset_container: {str(e)}")
-        return JsonResponse({'error': "An internal error occurred."}, status=500)
-    finally:
-        client.close()
+        return JsonResponse({"error": "An internal error occurred while resetting."}, status=500)
+
+
 
 @require_http_methods(["POST"])
 @login_required
 def request_teacher_status(request):
     profile = request.user.profile
-    if profile.role in ['ADMIN', 'SUPER']:
+
+    if not profile.organization:
+         return JsonResponse({"error": "You must join an organization before requesting admin status."}, status=400)
+    
+    if profile.role in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "You already have elevated privileges."}, status=400)
     
     if profile.is_pending_teacher:
@@ -688,14 +871,24 @@ def request_teacher_status(request):
 @require_http_methods(["GET"])
 @login_required
 def get_pending_teachers(request):
-    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+    profile = getattr(request.user, 'profile', None)
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
-    pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
+    if profile.role in ['ADMIN', 'COADMIN']:
+        if not profile.organization:
+             return JsonResponse({"pending_requests": []})
+        pending_profiles = UserProfile.objects.filter(
+            is_pending_teacher=True, 
+            organization=profile.organization
+        ).select_related('user')
+    else:
+        pending_profiles = UserProfile.objects.filter(is_pending_teacher=True).select_related('user')
     
     data = [{
         "user_id": p.user.id,
         "username": p.user.username,
+        "organization": p.organization.name if p.organization else "None",
         "date_joined": p.user.date_joined.strftime("%Y-%m-%d")
     } for p in pending_profiles]
 
@@ -704,7 +897,8 @@ def get_pending_teachers(request):
 @require_http_methods(["POST"])
 @login_required
 def approve_teacher(request, target_user_id):
-    if getattr(request.user.profile, 'role', 'STUDENT') != 'SUPER':
+    profile = getattr(request.user, 'profile', None)
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
@@ -714,7 +908,10 @@ def approve_teacher(request, target_user_id):
         if not target_profile.is_pending_teacher:
             return JsonResponse({"error": "This user does not have a pending request."}, status=400)
         
-        target_profile.role = 'ADMIN'
+        if profile.role in ['ADMIN', 'COADMIN'] and target_profile.organization != profile.organization:
+             return JsonResponse({"error": "You can only approve co-admins within your own organization."}, status=403)
+        
+        target_profile.role = 'COADMIN'
         target_profile.is_pending_teacher = False
         target_profile.save()
         log_user_action(request.user, f"Approved Teacher privileges for user '{target_user.username}'")
@@ -729,15 +926,56 @@ def approve_teacher(request, target_user_id):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
+@require_http_methods(["POST", "DELETE"])
+@login_required
+def remove_member(request, target_user_id):
+    request_profile = getattr(request.user, 'profile', None)
+    
+    if not request_profile or request_profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized. You do not have permission to remove members."}, status=403)
+
+    try:
+        target_user = User.objects.get(id=target_user_id)
+        target_profile = target_user.profile
+        
+        if request_profile.role != 'SUPER':
+            if target_profile.organization != request_profile.organization:
+                return JsonResponse({"error": "This user is not in your organization."}, status=403)
+            
+            if request_profile.role == 'COADMIN':
+                if target_profile.role in ['ADMIN', 'COADMIN', 'SUPER']:
+                    return JsonResponse({"error": "Co-Admins can only remove students."}, status=403)
+            
+            elif request_profile.role == 'ADMIN':
+                if target_profile.role in ['ADMIN', 'SUPER']:
+                    return JsonResponse({"error": "You cannot remove the Organization Owner or a Superuser."}, status=403)
+                    
+        org_name = target_profile.organization.name if target_profile.organization else "Unknown"
+        
+        target_profile.organization = None
+        target_profile.role = 'STUDENT' 
+        target_profile.is_pending_teacher = False 
+        target_profile.save()
+        
+        Container.objects.filter(user=target_user).update(organization=None)
+
+        log_user_action(request.user, f"Removed {target_user.username} from organization '{org_name}'")
+        log_user_action(target_user, f"Removed from organization '{org_name}' by {request.user.username}")
+        
+        return JsonResponse({
+            "status": "success",
+            "message": f"User {target_user.username} has been removed and demoted to Student."
+        })
+        
+    except User.DoesNotExist:
+        return JsonResponse({"error": "Target user not found."}, status=404)
+    except Exception as e:
+        print(f"Error in remove_member: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
 @require_http_methods(["POST"])
 @login_required
 def create_organization(request):
-    user_role = getattr(request.user.profile, 'role', 'STUDENT')
-    if user_role not in ['ADMIN', 'SUPER']:
-        return JsonResponse({
-            "error": "Unauthorized. Only approved Teachers and Admins can create organizations."
-        }, status=403)
-
     try:
         data = json.loads(request.body)
         org_name = data.get('name', '').strip()
@@ -749,15 +987,18 @@ def create_organization(request):
 
         profile = request.user.profile
         profile.organization = new_org
+        profile.role = 'ADMIN'
         profile.save()
-        log_user_action(request.user, f"Created organization '{new_org.name}'")
+
+        log_user_action(request.user, f"Created organization '{new_org.name}' and became Admin")
         Container.objects.filter(user=request.user).update(organization=new_org)
 
         return JsonResponse({
             "status": "success",
             "message": f"Organization '{new_org.name}' created successfully.",
             "org_code": new_org.org_code,
-            "organization_name": new_org.name
+            "organization_name": new_org.name,
+            "org_id": new_org.id
         }, status=201)
 
     except json.JSONDecodeError:
@@ -823,13 +1064,76 @@ def leave_organization(request):
         print(f"Error in leave_organization: {str(e)}")
         return JsonResponse({"error": "An internal server error occurred."}, status=500)
 
+@require_http_methods(["POST", "DELETE"])
+@login_required
+def delete_organization(request, org_id):
+    profile = getattr(request.user, 'profile', None)
+
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = get_object_or_404(Organization, id=org_id)
+        if profile.role == 'ADMIN' and profile.organization != org:
+            return JsonResponse({"error": "You can only delete an organization you own."}, status=403)
+        org_name = org.name
+
+        UserProfile.objects.filter(organization=org).update(
+            role='STUDENT',
+            is_pending_teacher=False
+        )
+
+        org.delete()
+        log_user_action(request.user, f"Deleted organization '{org_name}'")
+
+        return JsonResponse({
+            "status": "success",
+            "message": f"Organization '{org_name}' has been deleted."
+        })
+
+    except Exception as e:
+        print(f"Error in delete_organization: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
+@require_http_methods(["GET"])
+@login_required
+def get_organization_stats(request):
+    profile = getattr(request.user, 'profile', None)
+    
+    if not profile or profile.role not in ['ADMIN', 'COADMIN', 'SUPER']:
+        return JsonResponse({"error": "Unauthorized."}, status=403)
+
+    try:
+        org = profile.organization
+
+        if profile.role == 'SUPER' and not org:
+            member_count = UserProfile.objects.count()
+            container_count = Container.objects.count()
+            org_name = "All users"
+        
+        elif org:
+            member_count = UserProfile.objects.filter(organization=org).count()
+            container_count = Container.objects.filter(organization=org).count()
+            org_name = org.name
+            
+        else:
+            return JsonResponse({"error": "You are not assigned to an organization."}, status=400)
+
+        return JsonResponse({
+            "status": "success",
+            "organization_name": org_name,
+            "member_count": member_count,
+            "container_count": container_count
+        })
+
+    except Exception as e:
+        print(f"Error in get_organization_stats: {str(e)}")
+        return JsonResponse({"error": "An internal server error occurred."}, status=500)
+
 @require_http_methods(["GET"])
 @login_required
 def get_container_logs(request, container_id):
-    # container_id is now the Compose Project Name
     container_record = get_object_or_404(Container, docker_container_id=container_id)
-    
-    # ... (Keep all your existing authorization checks here) ...
     user_profile = getattr(request.user, 'profile', None)
     user_role = user_profile.role if user_profile else 'STUDENT'
     is_authorized = False
@@ -846,7 +1150,6 @@ def get_container_logs(request, container_id):
 
     unified_logs = []
 
-    # 1. Fetch System/Action Logs
     action_logs = ActionLog.objects.filter(container=container_record).order_by('-timestamp')[:50]
     for alog in action_logs:
         unified_logs.append({
@@ -858,39 +1161,37 @@ def get_container_logs(request, container_id):
     client = get_docker_client()
     if client:
         try:
-            # 2. Fetch Web App Logs
-            try:
-                web_container = client.containers.get(f"{container_id}-web-1")
-                raw_logs = web_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
-                
+            containers = client.containers.list(
+                all=True,
+                filters={"label": [f"com.docker.compose.project={container_id}", "com.docker.compose.service=web"]}
+            )
+            
+            if containers:
+                docker_container = containers[0]
+                raw_logs = docker_container.logs(stdout=True, stderr=True, timestamps=True, tail=100)
+                log_lines = raw_logs.decode('utf-8').split('\n')
+
                 noise_filters = ["Starting nginx", "waiting for connections", "DEBUG:", "npm notice"]
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or any(noise in line for noise in noise_filters): continue
+
+                for line in log_lines:
+                    if not line.strip(): continue
+                    if any(noise in line for noise in noise_filters): continue
+
                     parts = line.split(' ', 1)
                     if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "APP", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass # Container might be dead, that's fine
-
-            # 3. Fetch Terminal Logs
-            try:
-                term_container = client.containers.get(f"{container_id}-attacker-1")
-                raw_logs = term_container.logs(stdout=True, stderr=True, timestamps=True, tail=50)
+                        unified_logs.append({
+                            "timestamp": parts[0], 
+                            "source": "CONTAINER",
+                            "message": parts[1]    
+                        })
+            else:
+                print(f"No web container found for project: {container_id}")
                 
-                for line in raw_logs.decode('utf-8').split('\n'):
-                    if not line.strip() or "ttyd" in line: continue # Filter out ttyd noise
-                    parts = line.split(' ', 1)
-                    if len(parts) == 2:
-                        unified_logs.append({"timestamp": parts[0], "source": "TERMINAL", "message": parts[1]})
-            except docker.errors.NotFound:
-                pass
-
         except Exception as e:
             print(f"Docker log error: {e}")
         finally:
             client.close()
 
-    # Sort everything by timestamp so it flows perfectly chronologically
     unified_logs.sort(key=lambda x: x['timestamp'])
 
     return JsonResponse({"status": "success", "logs": unified_logs})
@@ -904,26 +1205,28 @@ def get_all_containers_admin(request):
 
     user_role = user_profile.role
 
-    if user_role not in ['SUPER', 'ADMIN']:
+    if user_role not in ['SUPER', 'COADMIN', 'ADMIN']:
         return JsonResponse({"error": "Unauthorized access."}, status=403)
 
     try:
         page_number = request.GET.get('page', 1)
-        users_with_containers = User.objects.filter(container__isnull=False).distinct()
+        admin_org = None
 
-        if user_role == 'ADMIN':
+        if user_role in ['ADMIN', 'COADMIN']:
             admin_org = user_profile.organization
             if not admin_org:
                 users_with_containers = User.objects.none()
             else:
-                users_with_containers = users_with_containers.filter(profile__organization=admin_org)
+                users_with_containers = User.objects.filter(profile__organization=admin_org)
+        else:
+            users_with_containers = User.objects.all()
 
         users_with_containers = users_with_containers.order_by('username')
         paginator = Paginator(users_with_containers, 10)
         page_obj = paginator.get_page(page_number)
         users_on_page = page_obj.object_list
 
-        if user_role == 'ADMIN':
+        if user_role in ['ADMIN', 'COADMIN']:
             containers = Container.objects.filter(
                 user__in=users_on_page, 
                 organization=admin_org
@@ -945,9 +1248,11 @@ def get_all_containers_admin(request):
             for user, c_list in organized_data.items()
         ]
 
+        org_scope_name = admin_org.name if admin_org else "Global (Super-Admin)"
+
         return JsonResponse({
             "data": response_data,
-            "organization_scope": admin_org.name if user_role == 'ADMIN' and admin_org else "Global (Super-Admin)",
+            "organization_scope": org_scope_name,
             "pagination": {
                 "current_page": page_obj.number,
                 "total_pages": paginator.num_pages,
@@ -969,16 +1274,21 @@ def check_container_ready(request, container_id):
     except Container.DoesNotExist:
         return JsonResponse({"error": "Unauthorized"}, status=403)
 
+    if db_container.status == "STOP":
+        return JsonResponse({"error": "Container is stopped.", "ready": False}, status=400)
+
     app_domain = config("APP_DOMAIN", default="localhost")
+    protocol = "http" if app_domain == "localhost" else "https"
+    
     hostname = f"{container_id}.{app_domain}"
-    terminal_hostname = f"terminal.{hostname}" # Define the terminal hostname
+    terminal_hostname = f"terminal.{hostname}"
+    subdomain_url = f"{protocol}://{hostname}"
+    terminal_url = f"{protocol}://{terminal_hostname}"
 
     # 1. The Traefik Probes
-    # Check BOTH the main app and the terminal
     app_is_ready = _probe_traefik_host(hostname)
     terminal_is_ready = _probe_traefik_host(terminal_hostname)
 
-    # If EITHER of them is still throwing a 502 Bad Gateway, keep spinning!
     if not (app_is_ready and terminal_is_ready):
         return JsonResponse({"ready": False})
 
@@ -999,7 +1309,7 @@ def check_container_ready(request, container_id):
 
     return JsonResponse({
         "ready": True,
-        "url": final_url,
+        "url": subdomain_url,
         "terminal_url": terminal_url
     })
 
