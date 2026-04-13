@@ -185,6 +185,7 @@ def login_user(request):
 @login_required
 def logout_user(request):
     #logs out user and removes session data for user
+    request.session.flush()
     logout(request)
     return JsonResponse({'status': 'Success', 'message': 'Logout successful.'})
 

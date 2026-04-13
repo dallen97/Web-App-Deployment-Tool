@@ -4,6 +4,7 @@ import Footer from "../components/Footer";
 import Header from "../components/Header";
 import { Container, Row, Col } from "react-bootstrap";
 import { Link } from "react-router-dom";
+import getCookie from "../components/GetCookie";
 
 function DashboardContent() {
   const [username, setUsername] = useState<string>("");
@@ -69,7 +70,20 @@ function DashboardContent() {
       <Header
         buttons={[
           { link: "#", text: `${username}`, isText: true },
-          { link: "/login/", text: "Logout" },
+          {
+            link: "#",
+            text: "Logout",
+            onClick: async () => {
+              await fetch("/api/logout_user/", {
+                method: "POST",
+                headers: {
+                  "X-CSRFToken": getCookie("wadt_csrftoken") || "",
+                },
+                credentials: "include",
+              });
+              window.location.href = "/login";
+            },
+          },
         ]}
         align="left"
       />

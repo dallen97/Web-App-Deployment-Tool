@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Button, Table } from "react-bootstrap";
 import getCookie from "./GetCookie";
+import { OverlayTrigger, Tooltip } from "react-bootstrap";
 
 export interface userInfo {
   name: string;
@@ -258,23 +259,43 @@ function UserTables({ data, onStop }: UserTablesProps) {
                       <td>
                         {rows[0].role !== "ADMIN" ? (
                           <>
-                            <Button
-                              size="sm"
-                              variant="outline-warning"
-                              style={{ marginLeft: "5px" }}
-                              disabled={rows[0].role === "COADMIN"}
-                              onClick={() => makeCoadmin(rows[0])}
+                            <OverlayTrigger
+                              placement="bottom"
+                              delay={{ show: 250, hide: 250 }}
+                              overlay={
+                                <Tooltip id="button-tooltip">
+                                  Promote to co-admin
+                                </Tooltip>
+                              }
                             >
-                              CO
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline-danger"
-                              style={{ marginLeft: "5px" }}
-                              onClick={() => handleRemoveUser(rows[0])}
+                              <Button
+                                size="sm"
+                                variant="outline-warning"
+                                style={{ marginLeft: "5px" }}
+                                disabled={rows[0].role === "COADMIN"}
+                                onClick={() => makeCoadmin(rows[0])}
+                              >
+                                CO
+                              </Button>
+                            </OverlayTrigger>
+                            <OverlayTrigger
+                              placement="bottom"
+                              delay={{ show: 250, hide: 250 }}
+                              overlay={
+                                <Tooltip id="button-tooltip">
+                                  Remove User
+                                </Tooltip>
+                              }
                             >
-                              ✕
-                            </Button>
+                              <Button
+                                size="sm"
+                                variant="outline-danger"
+                                style={{ marginLeft: "5px" }}
+                                onClick={() => handleRemoveUser(rows[0])}
+                              >
+                                ✕
+                              </Button>
+                            </OverlayTrigger>
                           </>
                         ) : (
                           <></>
