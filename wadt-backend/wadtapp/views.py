@@ -327,6 +327,8 @@ def get_containers(request):
     container_data = []
     max_runtime = timedelta(hours=24)
     max_runtime_seconds = int(max_runtime.total_seconds())
+    app_domain = config("APP_DOMAIN", default="localhost")
+    protocol = "http" if app_domain == "localhost" else "https"
 
     try:
         # Loop through the Compose Projects the DB thinks are running
@@ -350,7 +352,13 @@ def get_containers(request):
             
             if c.status == 'running':
                 started_at_str = c.attrs['State']['StartedAt']
+                
+                if '.' in started_at_str:
+                    base, fraction = started_at_str.split('.')
+                    started_at_str = f"{base}.{fraction[:6]}Z"
+                    
                 started_at = parse_datetime(started_at_str)
+                
                 if started_at:
                     started_at_iso = started_at.isoformat()
                     uptime = timezone.now() - started_at
@@ -358,6 +366,7 @@ def get_containers(request):
                     hours, remainder = divmod(uptime.seconds, 3600)
                     minutes, seconds = divmod(remainder, 60)
                     uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
+                    
                     
                     time_left = max_runtime - uptime
                     if time_left > timedelta(0):
@@ -409,6 +418,7 @@ def get_containers(request):
                 "uptime": uptime_str,
                 "time_left": time_left_str
             })
+            
             
         return JsonResponse(container_data, safe=False)
     except Exception as e:
@@ -823,13 +833,14 @@ def get_container_logs(request, container_id):
     user_profile = getattr(request.user, 'profile', None)
     user_role = user_profile.role if user_profile else 'STUDENT'
     is_authorized = False
+
     if user_role == 'SUPER':
         is_authorized = True 
     elif user_role == 'ADMIN' and user_profile.organization and container_record.organization == user_profile.organization:
         is_authorized = True
     elif container_record.user == request.user:
         is_authorized = True
-            
+        
     if not is_authorized:
         return JsonResponse({"error": "Unauthorized."}, status=403)
 
