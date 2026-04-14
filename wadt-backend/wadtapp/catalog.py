@@ -42,22 +42,8 @@ APP_CATALOG = {
             "traefik.http.services.shellshock.loadbalancer.server.port": "80"
         }
     },
-    "redis-lab": {
-        "image": "redis:6.0",
-        "port": "6379",
-    },
     "tiredful-api": {
         "image": "tuxotron/tiredful-api",
         "port": "8000"
     },
-    # ⭐ NEW ENTRIES
-    "cvwa": {
-        "image": "convisolabs/cvwa:latest",
-        "port": "8080"
-    },
-
-    "ghostkit-lab": {
-        "image": "yourdockerhub/ghostkit-lab:latest",
-        "port": "9090"
-    }
 }
