@@ -574,8 +574,8 @@ def get_containers(request):
                 "name": custom_name,
                 "image": image_tag,
                 "status": c.status,
-                "external_url": f"{protocol}://{hostname}" if c.status == 'running' else None,
-                "terminal_url": f"{protocol}://{terminal_hostname}" if c.status == 'running' else None,
+                "external_url": external_url if c.status == 'running' else None,
+                "terminal_url": terminal_url if c.status == 'running' else None,
                 "started_at": started_at_iso,
                 "max_runtime_seconds": max_runtime_seconds,
                 "uptime": uptime_str,
@@ -748,6 +748,7 @@ def stop_container(request, container_id):
 
     project_name = db_container.docker_container_id
     file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
+    network_name = f"{project_name}_default"
 
     threading.Thread(
         target=_stop_compose_project_async,
