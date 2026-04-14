@@ -74,34 +74,54 @@ const Docker = ({ docker = [] }: DockerList) => {
           terminal_url: string | null;
         }>;
 
+        const nextIds: { [key: string]: string } = {};
+        const nextStatuses: { [key: string]: "idle" | "loading" | "ready" } = {};
+        const nextUrls: { [key: string]: string } = {};
+        const nextTerminalUrls: { [key: string]: string } = {};
+
         for (const c of data) {
           if (!c?.name || !c?.id) continue;
-
-          setStartErrors((prev) => {
-            const next = { ...prev };
-            delete next[c.name];
-            return next;
-          });
-          setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
+          nextIds[c.name] = c.id;
 
           if (c.external_url) {
-            setContainerUrls((prev) => ({ ...prev, [c.name]: c.external_url as string }));
-            setTerminalUrls((prev) => ({ ...prev, [c.name]: (c.terminal_url ?? "") as string }));
-            setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
+            nextUrls[c.name] = c.external_url;
+            nextTerminalUrls[c.name] = c.terminal_url ?? "";
+            nextStatuses[c.name] = "ready";
           } else if (c.status === "starting" || c.status === "running") {
             // It's still starting, keep the spinner going
-            setContainerStatus((prev) => ({ ...prev, [c.name]: "loading" }));
+            nextStatuses[c.name] = "loading";
             pollForReadiness(c.id, c.name);
+          } else {
+            // Explicitly clear stale ready state after external stop/restart actions.
+            nextStatuses[c.name] = "idle";
           }
         }
+
+        setStartErrors((prev) => {
+          const next = { ...prev };
+          for (const c of data) {
+            if (c?.name) delete next[c.name];
+          }
+          return next;
+        });
+        setContainerIds((prev) => ({ ...prev, ...nextIds }));
+        setContainerStatus((prev) => ({ ...prev, ...nextStatuses }));
+        setContainerUrls(nextUrls);
+        setTerminalUrls(nextTerminalUrls);
       } catch {
         // ignore (user may be logged out or backend down)
       }
     };
 
     hydrateRunningContainers();
+    const intervalId = setInterval(hydrateRunningContainers, 5000);
+    window.addEventListener("wadt:containers-changed", hydrateRunningContainers);
     // Only run on mount; state updates happen via setters above
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("wadt:containers-changed", hydrateRunningContainers);
+    };
   }, []);
 
   // 1. Start Container
