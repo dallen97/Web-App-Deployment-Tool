@@ -18,15 +18,24 @@ function AdminPage() {
 
   const poll = useCallback(async () => {
     try {
-      const response = await fetch("/api/get_all_containers_admin/", {
-        method: "GET",
-        credentials: "include",
-      });
+      const raw: any[] = [];
+      let page = 1;
+      let hasNext = true;
 
-      if (!response.ok)
-        throw new Error(`HTTP error! status: ${response.status}`);
+      while (hasNext) {
+        const response = await fetch(`/api/get_all_containers_admin/?page=${page}`, {
+          method: "GET",
+          credentials: "include",
+        });
 
-      const { data: raw } = await response.json();
+        if (!response.ok)
+          throw new Error(`HTTP error! status: ${response.status}`);
+
+        const payload = await response.json();
+        raw.push(...(payload.data ?? []));
+        hasNext = !!payload.pagination?.has_next;
+        page += 1;
+      }
 
       // Check if users have started a container yet or not
       const organized: userInfo[] = raw.flatMap((user: any) =>
