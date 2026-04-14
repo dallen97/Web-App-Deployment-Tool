@@ -1278,8 +1278,6 @@ def check_container_ready(request, container_id):
     
     hostname = f"{container_id}.{app_domain}"
     terminal_hostname = f"terminal.{hostname}"
-    subdomain_url = f"{protocol}://{hostname}"
-    terminal_url = f"{protocol}://{terminal_hostname}"
 
     # 1. The Traefik Probes
     app_is_ready = _probe_traefik_host(hostname)
@@ -1297,7 +1295,7 @@ def check_container_ready(request, container_id):
 
     # 3. Construct the final exact URLs
     protocol = _lab_url_scheme()
-    final_url = f"{protocol}://{hostname}{app_path}"
+    subdomain_url = f"{protocol}://{hostname}{app_path}"
     terminal_url = f"{protocol}://{terminal_hostname}" 
 
     db_container.status = "RUN"
