@@ -626,6 +626,8 @@ def start_container(request):
             print(f"❌ FAILED TO FIND CATALOG INFO FOR KEY: '{app_key}'")
             return JsonResponse({"error": "Invalid application catalog key."}, status=400)
         
+        user_org = getattr(request.user.profile, "organization", None)
+
         db_container = Container.objects.filter(
             user=request.user, 
             description=f"Sandbox for {app_key}"
@@ -637,8 +639,13 @@ def start_container(request):
                 name=app_name,
                 description=f"Sandbox for {app_key}",
                 status="CREAT",
-                docker_container_id=""
+                docker_container_id="",
+                organization=user_org,
             )
+        else:
+            # Keep container org aligned with user's current org for admin visibility.
+            if db_container.organization != user_org:
+                db_container.organization = user_org
 
         other_containers_count = Container.objects.filter(
             user=request.user
@@ -1113,7 +1120,9 @@ def get_organization_stats(request):
         
         elif org:
             member_count = UserProfile.objects.filter(organization=org).count()
-            container_count = Container.objects.filter(organization=org).count()
+            container_count = Container.objects.filter(
+                user__profile__organization=org
+            ).count()
             org_name = org.name
             
         else:
@@ -1140,7 +1149,11 @@ def get_container_logs(request, container_id):
 
     if user_role == 'SUPER':
         is_authorized = True 
-    elif user_role == 'ADMIN' and user_profile.organization and container_record.organization == user_profile.organization:
+    elif (
+        user_role == 'ADMIN'
+        and user_profile.organization
+        and getattr(container_record.user.profile, "organization", None) == user_profile.organization
+    ):
         is_authorized = True
     elif container_record.user == request.user:
         is_authorized = True
@@ -1229,7 +1242,7 @@ def get_all_containers_admin(request):
         if user_role in ['ADMIN', 'COADMIN']:
             containers = Container.objects.filter(
                 user__in=users_on_page,
-                organization=admin_org
+                user__profile__organization=admin_org
             ).select_related('user')
         else:
             containers = Container.objects.filter(user__in=users_on_page).select_related('user')
