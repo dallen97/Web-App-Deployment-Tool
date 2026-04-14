@@ -185,7 +185,7 @@ function LogPage(){
   // Log filtering
   const currentLogs = logCache[currentContainer?.id ?? ""] ?? []
   const filteredLogs = (activeFilter === "ALL" ? currentLogs :
-      logs.filter(log => log.source === activeFilter))
+      currentLogs.filter(log => log.source === activeFilter))
   .filter(log => searchQuery === "" || log.message.toLowerCase().includes(searchQuery.toLowerCase()))
   .slice().reverse();
 
