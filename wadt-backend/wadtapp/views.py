@@ -608,15 +608,17 @@ def start_container(request):
             "pygoat/pygoat": "pygoat",
             "bkimminich/juice-shop": "juice-shop",
             "grafana/grafana:8.3.0": "grafana",
-            "vulnerables/web-dvwa": "web-dvwa",
+            "vulnerables/web-dvwa": "dvwa",
             "tiredful-api": "tiredful-api",
             "shellshock": "shellshock",
             "apache-struts": "apache-struts"
         }
 
-        app_key = body.get('appKey')
+        app_key = body.get('appKey') or body.get('app_key')
         if not app_key:
             app_key = IMAGE_TO_KEY.get(image_name)
+        elif app_key not in APP_CATALOG:
+            app_key = IMAGE_TO_KEY.get(app_key, app_key)
 
         app_info = APP_CATALOG.get(app_key)
         
@@ -694,16 +696,16 @@ def start_container(request):
         if "command" in terminal_info:
             compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
 
+        # Reuse existing compose file when present; otherwise generate it once.
         if os.path.exists(file_path):
             custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
             custom_docker.compose.start()
         else:
             with open(file_path, 'w') as f:
                 yaml.dump(compose_dict, f)
-            
+                
             custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
             custom_docker.compose.up(detach=True)
-
         # 5. Mark as starting and run compose work asynchronously.
         db_container.status = "STARTING"
         db_container.save()
