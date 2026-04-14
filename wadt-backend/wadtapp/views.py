@@ -751,8 +751,23 @@ def _get_user_container(client, user, container_id):
 def stop_container(request, container_id):
     # container_id is now our Compose Project Name (e.g., wadt-user2-grafana-69ba3a)
     try:
-        db_container = Container.objects.get(docker_container_id=container_id, user=request.user)
+        db_container = Container.objects.select_related("user__profile").get(
+            docker_container_id=container_id
+        )
     except Container.DoesNotExist:
+        return JsonResponse({"error": "Container not found"}, status=404)
+
+    user_profile = getattr(request.user, "profile", None)
+    user_role = user_profile.role if user_profile else "STUDENT"
+    is_owner = db_container.user_id == request.user.id
+    is_super = user_role == "SUPER"
+    is_org_admin = (
+        user_role in ["ADMIN", "COADMIN"]
+        and user_profile.organization
+        and getattr(db_container.user.profile, "organization", None) == user_profile.organization
+    )
+
+    if not (is_owner or is_super or is_org_admin):
         return JsonResponse({"error": "Container not found or unauthorized"}, status=404)
 
     project_name = db_container.docker_container_id
@@ -1247,14 +1262,51 @@ def get_all_containers_admin(request):
         else:
             containers = Container.objects.filter(user__in=users_on_page).select_related('user')
 
-        organized_data = {user.username: {"user_id": user.id, "role": user.profile.role, "containers": []} for user in users_on_page}
+        organized_data = {
+            user.username: {"user_id": user.id, "role": user.profile.role, "containers": []}
+            for user in users_on_page
+        }
+        # Track which catalog apps already exist per user so we can fill missing apps as STOP placeholders.
+        existing_app_keys_by_user = {user.username: set() for user in users_on_page}
+
+        def _catalog_display_name(app_key: str) -> str:
+            display = {
+                "pygoat": "PyGoat",
+                "juice-shop": "Juice Shop",
+                "grafana": "Grafana",
+                "dvwa": "DVWA",
+                "apache-struts": "Apache Struts",
+                "shellshock": "Shellshock",
+                "tiredful-api": "Tiredful API",
+            }
+            return display.get(app_key, app_key.replace("-", " ").title())
+
         for container in containers:
+            app_key = None
+            if container.description and container.description.startswith("Sandbox for "):
+                app_key = container.description.replace("Sandbox for ", "", 1).strip()
+                existing_app_keys_by_user[container.user.username].add(app_key)
             organized_data[container.user.username]["containers"].append({
                 "container_id": container.docker_container_id,
                 "name": container.name,
                 "status": container.status,
                 "created_at": container.created_at.isoformat() if hasattr(container, 'created_at') else None,
+                "app_key": app_key,
             })
+
+        # Add synthetic STOP rows for catalog apps the user has never launched yet.
+        catalog_keys = [k for k in APP_CATALOG.keys() if k != "attacker-terminal"]
+        for user in users_on_page:
+            username = user.username
+            missing = [k for k in catalog_keys if k not in existing_app_keys_by_user[username]]
+            for app_key in missing:
+                organized_data[username]["containers"].append({
+                    "container_id": None,
+                    "name": _catalog_display_name(app_key),
+                    "status": "STOP",
+                    "created_at": None,
+                    "app_key": app_key,
+                })
 
         response_data = [
             {"username": username, "user_id": data["user_id"], "role": data["role"], "containers": data["containers"]}
