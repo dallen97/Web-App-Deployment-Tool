@@ -706,15 +706,16 @@ def start_container(request):
             compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
 
         # Reuse existing compose file when present; otherwise generate it once.
-        if os.path.exists(file_path):
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            custom_docker.compose.start()
-        else:
+        # Always use `up -d` so missing service containers are created.
+        if not os.path.exists(file_path):
             with open(file_path, 'w') as f:
                 yaml.dump(compose_dict, f)
-                
-            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
-            custom_docker.compose.up(detach=True)
+
+        custom_docker = DockerClient(
+            compose_files=[file_path],
+            compose_project_name=project_name,
+        )
+        custom_docker.compose.up(detach=True)
         # 5. Mark as starting and run compose work asynchronously.
         db_container.status = "STARTING"
         db_container.save()
