@@ -545,16 +545,14 @@ def get_containers(request):
             protocol = _lab_url_scheme()
 
             # 2. State Machine Logic
-            app_host = f"{project_name}.{app_domain}"
-            terminal_host = f"terminal.{project_name}.{app_domain}"
-            app_ready = _probe_traefik_host(app_host)
-            terminal_ready = _probe_traefik_host(terminal_host)
-            is_ready = app_ready and terminal_ready
-
-            if db_c.status == "STARTING" and is_ready:
-                # Promote to RUN once both routes are actually reachable.
-                db_c.status = "RUN"
-                db_c.save()
+            is_ready = True
+            if db_c.status == "STARTING":
+                # Quick probe to see if it finished starting while we weren't looking
+                if _probe_traefik_host(f"{project_name}.{app_domain}") and _probe_traefik_host(f"terminal.{project_name}.{app_domain}"):
+                    db_c.status = "RUN"
+                    db_c.save()
+                else:
+                    is_ready = False
 
             # 3. Withhold URLs if not ready (same shape as check_container_ready, incl. catalog path)
             if is_ready:
