@@ -36,7 +36,7 @@ function getCookie(name: string) {
 const Docker = ({ docker = [] }: DockerList) => {
   // State to track status: 'idle', 'loading', or 'ready' for each container by name
   const [containerStatus, setContainerStatus] = useState<{
-    [key: string]: "idle" | "loading" | "ready";
+    [key: string]: "idle" | "loading" | "ready" | "resetting" | "restarting" | "stopping";
   }>({});
 
   // State to store the dynamic URL (e.g., localhost:55001) once ready
@@ -254,7 +254,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   // 4. Stop Container
   const handleStop = async (containerName: string) => {
-    setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
+    setContainerStatus((prev) => ({ ...prev, [containerName]: "stopping" }));
 
     const containerId = containerIds[containerName];
 
@@ -290,7 +290,7 @@ const Docker = ({ docker = [] }: DockerList) => {
   // 5. Restart Container
   const handleRestart = async (containerName: string) => {
     const containerId = containerIds[containerName];
-    setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
+    setContainerStatus((prev) => ({ ...prev, [containerName]: "restarting" }));
 
     try {
       const response = await fetch(`/api/restart_container/${containerId}/`, {
@@ -319,6 +319,11 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   // 6. Reset container
   const handleReset = async (containerId: string) => {
+    const containerName = Object.keys(containerIds).find(
+    key => containerIds[key] === containerId);
+
+      if (containerName)
+        setContainerStatus(prev => ({...prev,[containerName]: "resetting"}));
     try {
       const response = await fetch(`/api/reset_container/${containerId}/`, {
         method: "POST",
@@ -333,7 +338,11 @@ const Docker = ({ docker = [] }: DockerList) => {
         window.dispatchEvent(new Event("wadt:containers-changed"));
       else console.error("Failed to reset container:", data.error);
     } catch (err) {
-      console.error("Error resetting container:", err);
+        console.error("Error resetting container:", err);
+    } finally {
+        if (containerName) {
+      setContainerStatus(prev => ({...prev,[containerName]: "idle"}));
+      }
     }
   };
 
@@ -409,34 +418,37 @@ const Docker = ({ docker = [] }: DockerList) => {
 
                   {/* 4. Stop, Restart, Reset when running */}
                   {(containerStatus[d.name] === "loading" ||
-                    containerStatus[d.name] === "ready") && (
+                    containerStatus[d.name] === "ready" ||
+                    containerStatus[d.name] === "restarting" ||
+                    containerStatus[d.name] === "resetting" ||
+                    containerStatus[d.name] == "stopping") && (
                     <>
                       <Button
-                        variant="danger"
+                        variant={containerStatus[d.name] === "stopping" ? "secondary" : "danger"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleStop(d.name)}
-                        disabled={containerStatus[d.name] === "loading"}
+                        disabled={containerStatus[d.name] === "stopping"}
                         size="sm"
                       >
-                        {containerStatus[d.name] === "loading" ? "Working..." : "Stop"}
+                        {containerStatus[d.name] === "stopping" ? "Stopping..." : "Stop"}
                       </Button>
                       <Button
-                        variant="warning"
+                        variant={containerStatus[d.name] === "restarting" ? "secondary" : "warning"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleRestart(d.name)}
-                        disabled={containerStatus[d.name] === "loading"}
+                        disabled={containerStatus[d.name] === "restarting"}
                         size="sm"
                       >
-                        Restart
+                        {containerStatus[d.name] === "restarting" ? "Restarting..." : "Restart"}
                       </Button>
                       <Button
-                        variant="info"
+                        variant={containerStatus[d.name] === "resetting" ? "secondary" : "info"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleReset(containerIds[d.name])}
-                        disabled={containerStatus[d.name] === "loading"}
+                        disabled={containerStatus[d.name] === "resetting"}
                         size="sm"
                       >
-                        Reset
+                        {containerStatus[d.name] === "resetting" ? "Resetting..." : "Reset"}
                       </Button>
                     </>
                   )}
