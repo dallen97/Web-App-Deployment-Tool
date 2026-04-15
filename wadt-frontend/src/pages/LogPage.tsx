@@ -22,7 +22,9 @@ function LogPage(){
   const [activeFilter, setActiveFilter] = useState<string>("ALL"); // Filter for logs
   const [searchQuery, setSearchQuery] = useState<string>(""); // Search bar query
   const [logCache, setLogCache] = useState<{[id: string]: {timestamp: string; source: string; message: string}[]}>({}); // cache of logs incase they were stopped
-
+  const [isRestarting, setIsRestarting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [isStopped, setIsStopped] = useState(false);
 
   const { id: selectedContainerId } = useParams(); // Track selected container from dashboard
   const navigate = useNavigate();
@@ -47,7 +49,7 @@ function LogPage(){
   // Call API for stopping container
   const handleStop = async () => {
   if (!currentContainer) return;
-      setIsLoading(true);
+      setIsStopped(true);
   try {
       const response = await fetch(`/api/stop_container/${currentContainer.id}/`, {
           method: "POST",
@@ -85,7 +87,7 @@ function LogPage(){
   // Call api for reset container
   const handleReset = async () => {
       if (!currentContainer) return;
-      setIsLoading(true);
+      setIsResetting(true);
       try {
           const response = await fetch(`/api/reset_container/${currentContainer.id}/`, {
               method: "POST",
@@ -106,15 +108,15 @@ function LogPage(){
       } catch (err) {
           console.error("Error resetting container:", err);
       } finally {
-          setIsLoading(false);
-
+          setIsResetting(false);
       }
   };
 
   // Call API for restarting container
   const handleRestart = async () => {
       if (!currentContainer) return;
-      setIsLoading(true);
+      setIsRestarting(true);
+
       try {
           const response = await fetch(`/api/restart_container/${currentContainer.id}/`, {
               method: "POST",
@@ -131,7 +133,7 @@ function LogPage(){
       } catch (err) {
           console.error("Error restarting container:", err);
       } finally {
-          setIsLoading(false);
+          setIsRestarting(false);
       }
   };
 
@@ -185,7 +187,7 @@ function LogPage(){
   // Log filtering
   const currentLogs = logCache[currentContainer?.id ?? ""] ?? []
   const filteredLogs = (activeFilter === "ALL" ? currentLogs :
-      logs.filter(log => log.source === activeFilter))
+      currentLogs.filter(log => log.source === activeFilter))
   .filter(log => searchQuery === "" || log.message.toLowerCase().includes(searchQuery.toLowerCase()))
   .slice().reverse();
 
@@ -233,6 +235,7 @@ function LogPage(){
             setCurrentContainer={(name) => {
                 const findContainer = runningContainers.find(c => c.name === name) ?? null;
                 setCurrentContainer(findContainer);
+                setIsStopped(false);
             }}/>
     </div>
   </div>
@@ -240,9 +243,9 @@ function LogPage(){
   {/* Second card with stop, restart, reset and clear logs buttons */}
   <div className="containers_card" style ={{padding: "1vh"}}>
       <div style={{display: "flex",justifyContent: "space-between", alignItems: "center", height: "100%"}}>
-          {!currentContainer ? (
+          {!currentContainer || isStopped ? (
               <span style={{color: "white", fontStyle: "italic"}}>
-                  Select a container to see actions
+                  {isStopped ? "Container stopped. Select a running container to see actions." : "Select a container to see actions"}
               </span>
           ) : (
               <div style={{ display: "flex", gap: "10px" }}>
@@ -261,9 +264,19 @@ function LogPage(){
                   )}
                   {/* Stop, Reset, Restart buttons, terminal */}
                   <div style = {{display: "flex", gap: "10px"}}>
-                      <Button variant="danger" disabled={isLoading} onClick={handleStop}>Stop</Button>
-                      <Button variant="info" disabled={isLoading} onClick={handleReset}>Reset</Button>
-                      <Button variant="warning" disabled={isLoading} onClick={handleRestart}>Restart</Button>
+                    <Button variant="danger" disabled={isLoading} onClick={handleStop}>Stop</Button>
+                    <Button 
+                        variant={isRestarting ? "secondary" : "warning"}
+                        disabled={isRestarting}
+                        onClick={handleRestart}>
+                        {isRestarting ? "Restarting..." : "Restart"}
+                    </Button>
+                    <Button 
+                        variant={isResetting ? "secondary" : "info"}
+                        disabled={isResetting}
+                        onClick={handleReset}>
+                        {isResetting ? "Resetting..." : "Reset"}
+                    </Button>
                   </div>
               </div>
           )}
@@ -286,10 +299,6 @@ function LogPage(){
                 </Button>
             </>
            )}
-
-              <Button variant="outline-secondary">
-                  Clear Logs
-              </Button>
           </div>
       </div>
   </div>

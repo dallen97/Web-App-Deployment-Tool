@@ -36,7 +36,7 @@ function getCookie(name: string) {
 const Docker = ({ docker = [] }: DockerList) => {
   // State to track status: 'idle', 'loading', or 'ready' for each container by name
   const [containerStatus, setContainerStatus] = useState<{
-    [key: string]: "idle" | "loading" | "ready";
+    [key: string]: "idle" | "loading" | "ready" | "resetting" | "restarting" | "stopping";
   }>({});
 
   // State to store the dynamic URL (e.g., localhost:55001) once ready
@@ -74,40 +74,54 @@ const Docker = ({ docker = [] }: DockerList) => {
           terminal_url: string | null;
         }>;
 
+        const nextIds: { [key: string]: string } = {};
+        const nextStatuses: { [key: string]: "idle" | "loading" | "ready" } = {};
+        const nextUrls: { [key: string]: string } = {};
+        const nextTerminalUrls: { [key: string]: string } = {};
+
         for (const c of data) {
           if (!c?.name || !c?.id) continue;
-
-          setStartErrors((prev) => {
-            const next = { ...prev };
-            delete next[c.name];
-            return next;
-          });
-          setContainerIds((prev) => ({ ...prev, [c.name]: c.id }));
+          nextIds[c.name] = c.id;
 
           if (c.external_url) {
-            setContainerUrls((prev) => ({
-              ...prev,
-              [c.name]: c.external_url as string,
-            }));
-            setTerminalUrls((prev) => ({
-              ...prev,
-              [c.name]: c.terminal_url as string,
-            }));
-            setContainerStatus((prev) => ({ ...prev, [c.name]: "ready" }));
+            nextUrls[c.name] = c.external_url;
+            nextTerminalUrls[c.name] = c.terminal_url ?? "";
+            nextStatuses[c.name] = "ready";
           } else if (c.status === "starting" || c.status === "running") {
             // It's still starting, keep the spinner going
-            setContainerStatus((prev) => ({ ...prev, [c.name]: "loading" }));
+            nextStatuses[c.name] = "loading";
             pollForReadiness(c.id, c.name);
+          } else {
+            // Explicitly clear stale ready state after external stop/restart actions.
+            nextStatuses[c.name] = "idle";
           }
         }
+
+        setStartErrors((prev) => {
+          const next = { ...prev };
+          for (const c of data) {
+            if (c?.name) delete next[c.name];
+          }
+          return next;
+        });
+        setContainerIds((prev) => ({ ...prev, ...nextIds }));
+        setContainerStatus((prev) => ({ ...prev, ...nextStatuses }));
+        setContainerUrls(nextUrls);
+        setTerminalUrls(nextTerminalUrls);
       } catch {
         // ignore (user may be logged out or backend down)
       }
     };
 
     hydrateRunningContainers();
+    const intervalId = setInterval(hydrateRunningContainers, 5000);
+    window.addEventListener("wadt:containers-changed", hydrateRunningContainers);
     // Only run on mount; state updates happen via setters above
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => {
+      clearInterval(intervalId);
+      window.removeEventListener("wadt:containers-changed", hydrateRunningContainers);
+    };
   }, []);
 
   // 1. Start Container
@@ -181,13 +195,45 @@ const Docker = ({ docker = [] }: DockerList) => {
         const data = await response.json();
 
         if (data.ready) {
-          console.log("Container is officially ready at:", data.url);
           clearInterval(intervalId); // Stop checking
-          setContainerUrls((prev) => ({ ...prev, [containerName]: data.url }));
-          setTerminalUrls((prev) => ({
-            ...prev,
-            [containerName]: data.terminal_url,
-          }));
+          
+          // Same URLs as the logs page: always from get_containers (not check_container_ready JSON).
+          try {
+            const rc = await fetch("/api/get_containers/", {
+              method: "GET",
+              credentials: "include",
+            });
+            if (rc.ok) {
+              const list = (await rc.json()) as Array<{
+                id: string;
+                name: string;
+                external_url: string | null;
+                terminal_url: string | null;
+              }>;
+              const row = list.find((x) => x.id === containerId);
+              if (row?.external_url) {
+                setContainerUrls((prev) => ({
+                  ...prev,
+                  [containerName]: row.external_url as string,
+                }));
+                setTerminalUrls((prev) => ({
+                  ...prev,
+                  [containerName]: (row.terminal_url ?? "") as string,
+                }));
+                console.log("Container is officially ready at:", row.external_url);
+                setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
+                window.dispatchEvent(new Event("wadt:containers-changed"));
+                return;
+              }
+            }
+          } catch {
+            /* fall through */
+          }
+          const appUrl = (data.url as string) ?? "";
+          const termUrl = (data.terminal_url as string | undefined) ?? "";
+          setContainerUrls((prev) => ({ ...prev, [containerName]: appUrl }));
+          setTerminalUrls((prev) => ({ ...prev, [containerName]: termUrl }));
+
           setContainerStatus((prev) => ({ ...prev, [containerName]: "ready" }));
           window.dispatchEvent(new Event("wadt:containers-changed"));
         }
@@ -208,7 +254,7 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   // 4. Stop Container
   const handleStop = async (containerName: string) => {
-    setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
+    setContainerStatus((prev) => ({ ...prev, [containerName]: "stopping" }));
 
     const containerId = containerIds[containerName];
 
@@ -244,7 +290,7 @@ const Docker = ({ docker = [] }: DockerList) => {
   // 5. Restart Container
   const handleRestart = async (containerName: string) => {
     const containerId = containerIds[containerName];
-    setContainerStatus((prev) => ({ ...prev, [containerName]: "loading" }));
+    setContainerStatus((prev) => ({ ...prev, [containerName]: "restarting" }));
 
     try {
       const response = await fetch(`/api/restart_container/${containerId}/`, {
@@ -273,6 +319,11 @@ const Docker = ({ docker = [] }: DockerList) => {
 
   // 6. Reset container
   const handleReset = async (containerId: string) => {
+    const containerName = Object.keys(containerIds).find(
+    key => containerIds[key] === containerId);
+
+      if (containerName)
+        setContainerStatus(prev => ({...prev,[containerName]: "resetting"}));
     try {
       const response = await fetch(`/api/reset_container/${containerId}/`, {
         method: "POST",
@@ -287,7 +338,11 @@ const Docker = ({ docker = [] }: DockerList) => {
         window.dispatchEvent(new Event("wadt:containers-changed"));
       else console.error("Failed to reset container:", data.error);
     } catch (err) {
-      console.error("Error resetting container:", err);
+        console.error("Error resetting container:", err);
+    } finally {
+        if (containerName) {
+      setContainerStatus(prev => ({...prev,[containerName]: "idle"}));
+      }
     }
   };
 
@@ -363,31 +418,37 @@ const Docker = ({ docker = [] }: DockerList) => {
 
                   {/* 4. Stop, Restart, Reset when running */}
                   {(containerStatus[d.name] === "loading" ||
-                    containerStatus[d.name] === "ready") && (
+                    containerStatus[d.name] === "ready" ||
+                    containerStatus[d.name] === "restarting" ||
+                    containerStatus[d.name] === "resetting" ||
+                    containerStatus[d.name] == "stopping") && (
                     <>
                       <Button
-                        variant="danger"
+                        variant={containerStatus[d.name] === "stopping" ? "secondary" : "danger"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleStop(d.name)}
+                        disabled={containerStatus[d.name] === "stopping"}
                         size="sm"
                       >
-                        Stop
+                        {containerStatus[d.name] === "stopping" ? "Stopping..." : "Stop"}
                       </Button>
                       <Button
-                        variant="warning"
+                        variant={containerStatus[d.name] === "restarting" ? "secondary" : "warning"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleRestart(d.name)}
+                        disabled={containerStatus[d.name] === "restarting"}
                         size="sm"
                       >
-                        Restart
+                        {containerStatus[d.name] === "restarting" ? "Restarting..." : "Restart"}
                       </Button>
                       <Button
-                        variant="info"
+                        variant={containerStatus[d.name] === "resetting" ? "secondary" : "info"}
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleReset(containerIds[d.name])}
+                        disabled={containerStatus[d.name] === "resetting"}
                         size="sm"
                       >
-                        Reset
+                        {containerStatus[d.name] === "resetting" ? "Resetting..." : "Reset"}
                       </Button>
                     </>
                   )}
