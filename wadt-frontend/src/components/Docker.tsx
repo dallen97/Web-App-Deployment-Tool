@@ -415,14 +415,16 @@ const Docker = ({ docker = [] }: DockerList) => {
                         variant="danger"
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleStop(d.name)}
+                        disabled={containerStatus[d.name] === "loading"}
                         size="sm"
                       >
-                        Stop
+                        {containerStatus[d.name] === "loading" ? "Working..." : "Stop"}
                       </Button>
                       <Button
                         variant="warning"
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleRestart(d.name)}
+                        disabled={containerStatus[d.name] === "loading"}
                         size="sm"
                       >
                         Restart
@@ -431,6 +433,7 @@ const Docker = ({ docker = [] }: DockerList) => {
                         variant="info"
                         style={{ marginLeft: "10px" }}
                         onClick={() => handleReset(containerIds[d.name])}
+                        disabled={containerStatus[d.name] === "loading"}
                         size="sm"
                       >
                         Reset
