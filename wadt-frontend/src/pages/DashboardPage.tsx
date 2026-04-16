@@ -112,6 +112,7 @@ function DashboardContent() {
                 style={{ width: "100%", margin: "16px auto", padding: "0" }}
               />
               <Docker
+                serverContainers={containers}
                 docker={[
                   {
                     name: "PyGoat",
