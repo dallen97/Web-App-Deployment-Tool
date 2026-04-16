@@ -1,0 +1,27 @@
+services:
+  attacker:
+    command: ttyd -W bash
+    image: wadt-attacker:latest
+    labels:
+      traefik.docker.network: wadt-user19-dvwa-7ed279_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-dvwa-7ed279-terminal.entrypoints: web
+      traefik.http.routers.wadt-user19-dvwa-7ed279-terminal.rule: Host(`terminal.wadt-user19-dvwa-7ed279.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-dvwa-7ed279-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    cap_add:
+    - SETUID
+    - SETGID
+    - CHOWN
+    image: vulnerables/web-dvwa
+    labels:
+      traefik.docker.network: wadt-user19-dvwa-7ed279_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-dvwa-7ed279.entrypoints: web
+      traefik.http.routers.wadt-user19-dvwa-7ed279.rule: Host(`wadt-user19-dvwa-7ed279.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-dvwa-7ed279.loadbalancer.server.port: '80'
+      wadt.user_id: '19'
+    networks:
+    - default

@@ -15,7 +15,7 @@ APP_CATALOG = {
     "dvwa": {
         "image": "vulnerables/web-dvwa",
         "port": "80",
-        "path": "/login.php",
+        "path": "/setup.php",
         "cap_add": ["SETUID", "SETGID", "CHOWN"]
     },
     "apache-struts": {

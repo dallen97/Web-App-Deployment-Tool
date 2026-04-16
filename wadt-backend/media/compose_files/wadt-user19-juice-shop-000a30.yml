@@ -1,0 +1,23 @@
+services:
+  attacker:
+    command: ttyd -W bash
+    image: wadt-attacker:latest
+    labels:
+      traefik.docker.network: wadt-user19-juice-shop-000a30_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-juice-shop-000a30-terminal.entrypoints: web
+      traefik.http.routers.wadt-user19-juice-shop-000a30-terminal.rule: Host(`terminal.wadt-user19-juice-shop-000a30.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-juice-shop-000a30-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: bkimminich/juice-shop:latest
+    labels:
+      traefik.docker.network: wadt-user19-juice-shop-000a30_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-juice-shop-000a30.entrypoints: web
+      traefik.http.routers.wadt-user19-juice-shop-000a30.rule: Host(`wadt-user19-juice-shop-000a30.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-juice-shop-000a30.loadbalancer.server.port: '3000'
+      wadt.user_id: '19'
+    networks:
+    - default

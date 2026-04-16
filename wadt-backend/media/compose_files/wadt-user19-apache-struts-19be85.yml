@@ -1,0 +1,23 @@
+services:
+  attacker:
+    command: ttyd -W bash
+    image: wadt-attacker:latest
+    labels:
+      traefik.docker.network: wadt-user19-apache-struts-19be85_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-apache-struts-19be85-terminal.entrypoints: web
+      traefik.http.routers.wadt-user19-apache-struts-19be85-terminal.rule: Host(`terminal.wadt-user19-apache-struts-19be85.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-apache-struts-19be85-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: piesecurity/apache-struts2-cve-2017-5638
+    labels:
+      traefik.docker.network: wadt-user19-apache-struts-19be85_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user19-apache-struts-19be85.entrypoints: web
+      traefik.http.routers.wadt-user19-apache-struts-19be85.rule: Host(`wadt-user19-apache-struts-19be85.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user19-apache-struts-19be85.loadbalancer.server.port: '8080'
+      wadt.user_id: '19'
+    networks:
+    - default

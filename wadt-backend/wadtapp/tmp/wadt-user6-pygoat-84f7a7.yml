@@ -1,0 +1,23 @@
+services:
+  attacker:
+    command: ttyd -W bash
+    image: wadt-attacker:latest
+    labels:
+      traefik.docker.network: wadt-user6-pygoat-84f7a7_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user6-pygoat-84f7a7-terminal.entrypoints: web
+      traefik.http.routers.wadt-user6-pygoat-84f7a7-terminal.rule: Host(`terminal.wadt-user6-pygoat-84f7a7.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user6-pygoat-84f7a7-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: pygoat/pygoat:latest
+    labels:
+      traefik.docker.network: wadt-user6-pygoat-84f7a7_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user6-pygoat-84f7a7.entrypoints: web
+      traefik.http.routers.wadt-user6-pygoat-84f7a7.rule: Host(`wadt-user6-pygoat-84f7a7.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user6-pygoat-84f7a7.loadbalancer.server.port: '8000'
+      wadt.user_id: '6'
+    networks:
+    - default

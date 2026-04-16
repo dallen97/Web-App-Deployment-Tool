@@ -1,0 +1,23 @@
+services:
+  attacker:
+    command: ttyd -W bash
+    image: wadt-attacker:latest
+    labels:
+      traefik.docker.network: wadt-user18-grafana-407a98_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user18-grafana-407a98-terminal.entrypoints: web
+      traefik.http.routers.wadt-user18-grafana-407a98-terminal.rule: Host(`terminal.wadt-user18-grafana-407a98.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user18-grafana-407a98-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: grafana/grafana:8.3.0
+    labels:
+      traefik.docker.network: wadt-user18-grafana-407a98_default
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user18-grafana-407a98.entrypoints: web
+      traefik.http.routers.wadt-user18-grafana-407a98.rule: Host(`wadt-user18-grafana-407a98.thedemo.fischbowl.tech`)
+      traefik.http.services.wadt-user18-grafana-407a98.loadbalancer.server.port: '3000'
+      wadt.user_id: '18'
+    networks:
+    - default

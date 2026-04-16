@@ -678,8 +678,10 @@ def start_container(request):
             "labels": {
                 "traefik.enable": "true",
                 f"traefik.http.routers.{project_name}.rule": router_rule,
-                f"traefik.http.routers.{project_name}.entrypoints": "web",
+                f"traefik.http.routers.{project_name}.entrypoints": "websecure",
                 f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
+                f"traefik.http.routers.{project_name}.tls": "true",
+                f"traefik.http.routers.{project_name}.tls.options": "default",
                 "traefik.docker.network": network_name,
                 "wadt.user_id": user_id_str
             }
@@ -695,8 +697,10 @@ def start_container(request):
             "labels": {
                 "traefik.enable": "true",
                 f"traefik.http.routers.{project_name}-terminal.rule": f"Host(`terminal.{project_name}.{app_domain}`)",
-                f"traefik.http.routers.{project_name}-terminal.entrypoints": "web",
+                f"traefik.http.routers.{project_name}-terminal.entrypoints": "websecure",
                 f"traefik.http.services.{project_name}-terminal.loadbalancer.server.port": terminal_info["port"],
+                f"traefik.http.routers.{project_name}-terminal.tls": "true",
+                f"traefik.http.routers.{project_name}-terminal.tls.options": "default",
                 "traefik.docker.network": network_name
             }
         }

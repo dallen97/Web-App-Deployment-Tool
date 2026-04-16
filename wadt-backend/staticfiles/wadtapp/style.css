@@ -1,0 +1,258 @@
+/* Reset and Base Styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Courier New', 'Consolas', 'Monaco', monospace;
+    background: #0d1117;
+    color: #58a6ff;
+    min-height: 100vh;
+    padding: 2rem;
+    line-height: 1.6;
+}
+
+/* Page Header */
+h1 {
+    text-align: center;
+    color: #7ee787;
+    font-size: 2.5rem;
+    margin-bottom: 3rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    border-bottom: 2px solid #30363d;
+    padding-bottom: 1rem;
+}
+
+h1::before {
+    content: '$ ';
+    color: #58a6ff;
+}
+
+/* Catalog List */
+.catalog {
+    list-style: none;
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 1.5rem;
+}
+
+/* Container Entry */
+.entry {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 1.5rem;
+    box-shadow: 0 0 10px rgba(88, 166, 255, 0.1);
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.entry::before {
+    content: '>';
+    position: absolute;
+    left: 0.5rem;
+    top: 0.5rem;
+    color: #7ee787;
+    font-weight: bold;
+    font-size: 1.2rem;
+}
+
+.entry:hover {
+    border-color: #58a6ff;
+    box-shadow: 0 0 20px rgba(88, 166, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+/* Container Name */
+.entry h2 {
+    font-size: 1.3rem;
+    margin-bottom: 0.75rem;
+    margin-left: 1.5rem;
+}
+
+.entry h2 a {
+    color: #58a6ff;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.entry h2 a:hover {
+    color: #7ee787;
+    text-decoration: underline;
+}
+
+.entry h2 a:focus {
+    outline: 2px solid #58a6ff;
+    outline-offset: 2px;
+    background: #1c2128;
+}
+
+/* Status */
+.status {
+    font-size: 0.9rem;
+    margin-bottom: 0.75rem;
+    color: #8b949e;
+    font-weight: 400;
+}
+
+.status::before {
+    content: '├─ ';
+    color: #30363d;
+}
+
+.indicator {
+    display: inline-block;
+    padding: 0.3rem 0.7rem;
+    border-radius: 3px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: #1a7f37;
+    color: #ffffff;
+    border: 1px solid transparent;
+}
+
+/* Status Variants */
+.indicator[data-status="running"] {
+    background: #1a7f37;
+    color: #ffffff;
+    border-color: #2ea043;
+}
+
+.indicator[data-status="stopped"] {
+    background: #6e7681;
+    color: #ffffff;
+    border-color: #8b949e;
+}
+
+.indicator[data-status="created"] {
+    background: #0969da;
+    color: #ffffff;
+    border-color: #1f6feb;
+}
+
+.indicator[data-status="restarting"] {
+    background: #bf8700;
+    color: #ffffff;
+    border-color: #d29922;
+}
+
+.indicator[data-status="error"] {
+    background: #da3633;
+    color: #ffffff;
+    border-color: #f85149;
+}
+
+/* Description */
+.description {
+    color: #8b949e;
+    font-size: 0.9rem;
+    line-height: 1.6;
+    margin-left: 1.5rem;
+}
+
+.description::before {
+    content: '└─ ';
+    color: #30363d;
+    margin-left: -1.5rem;
+}
+
+/* Terminal Cursor Animation */
+@keyframes blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+h1::after {
+    content: '▋';
+    animation: blink 1s infinite;
+    margin-left: 0.5rem;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    body {
+        padding: 1rem;
+    }
+
+    h1 {
+        font-size: 2rem;
+        margin-bottom: 2rem;
+    }
+
+    .catalog {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    .entry {
+        padding: 1.25rem;
+    }
+
+    .entry h2 {
+        font-size: 1.15rem;
+    }
+}
+
+@media (max-width: 480px) {
+    h1 {
+        font-size: 1.5rem;
+        letter-spacing: 1px;
+    }
+
+    .entry h2 {
+        font-size: 1rem;
+    }
+
+    .description {
+        font-size: 0.85rem;
+    }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* Print Styles */
+@media print {
+    body {
+        background: white;
+        color: black;
+    }
+
+    h1 {
+        color: black;
+        border-color: black;
+    }
+
+    .entry {
+        border-color: black;
+        box-shadow: none;
+    }
+
+    .entry::before {
+        color: black;
+    }
+}

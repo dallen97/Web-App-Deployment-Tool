@@ -1,0 +1,26 @@
+services:
+  attacker:
+    command: bash -c "set -e; apt-get update && apt-get install -y nmap curl iputils-ping;
+      ARCH=$(uname -m); case $ARCH in x86_64|amd64) T=ttyd.x86_64 ;; aarch64|arm64)
+      T=ttyd.aarch64 ;; *) T=ttyd.x86_64 ;; esac; curl -fL https://github.com/tsl0922/ttyd/releases/download/1.7.7/${T}
+      -o /usr/local/bin/ttyd && chmod +x /usr/local/bin/ttyd && exec ttyd -W bash"
+    image: kalilinux/kali-rolling:latest
+    labels:
+      traefik.docker.network: wadt_sandbox_network
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user2-juice-shop-6ab962-terminal.entrypoints: web
+      traefik.http.routers.wadt-user2-juice-shop-6ab962-terminal.rule: Host(`terminal.wadt-user2-juice-shop-6ab962.13.58.27.23.nip.io`)
+      traefik.http.services.wadt-user2-juice-shop-6ab962-terminal.loadbalancer.server.port: '7681'
+    networks:
+    - default
+  web:
+    image: bkimminich/juice-shop:latest
+    labels:
+      traefik.docker.network: wadt_sandbox_network
+      traefik.enable: 'true'
+      traefik.http.routers.wadt-user2-juice-shop-6ab962.entrypoints: web
+      traefik.http.routers.wadt-user2-juice-shop-6ab962.rule: Host(`wadt-user2-juice-shop-6ab962.13.58.27.23.nip.io`)
+      traefik.http.services.wadt-user2-juice-shop-6ab962.loadbalancer.server.port: '3000'
+      wadt.user_id: '2'
+    networks:
+    - default

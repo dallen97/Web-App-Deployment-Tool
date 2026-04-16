@@ -165,7 +165,7 @@ CORS_ALLOWED_ORIGINS = [
 # CSRF: Allow Frontend to send Tokens
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
-    "http://127.0.0.1:5173", "http://13.58.27.23:8000","http://13.58.27.23", "http://thedemo.fischbowl.tech"
+    "http://127.0.0.1:5173", "http://13.58.27.23:8000","http://13.58.27.23", "https://thedemo.fischbowl.tech"
 ]
 CSRF_COOKIE_HTTPONLY = False  # Allows JS to read the token
 CSRF_COOKIE_SAMESITE = 'Lax'
