@@ -114,7 +114,7 @@ const Docker = ({ docker = [] }: DockerList) => {
     };
 
     hydrateRunningContainers();
-    const intervalId = setInterval(hydrateRunningContainers, 5000);
+    const intervalId = setInterval(hydrateRunningContainers, 10000);
     window.addEventListener("wadt:containers-changed", hydrateRunningContainers);
     // Only run on mount; state updates happen via setters above
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,16 +1,25 @@
+tls:
+  certificates:
+    - certFile: "/etc/letsencrypt/live/thedemo.fischbowl.tech/fullchain.pem"
+      keyFile: "/etc/letsencrypt/live/thedemo.fischbowl.tech/privkey.pem"
+
 http:
   routers:
     api:
-      rule: "(Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/api`)"
+      #rule: "(Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)) && PathPrefix(`/api`)"
+      rule: "Host(`thedemo.fischbowl.tech`) && PathPrefix(`/api`)"
       entryPoints:
-        - web
+        - websecure
+      tls: {}
       service: django-api
       priority: 100
 
     frontend:
-      rule: "Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)"
+      #rule: "Host(`thedemo.fischbowl.tech`) || Host(`13.58.27.23`) || Host(`localhost`) || Host(`127.0.0.1`)"
+      rule: "Host(`thedemo.fischbowl.tech`)"
       entryPoints:
-        - web
+        - websecure
+      tls: {}
       service: frontend-static
       priority: 1
 
