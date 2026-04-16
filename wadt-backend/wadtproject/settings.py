@@ -171,6 +171,8 @@ CSRF_COOKIE_HTTPONLY = False  # Allows JS to read the token
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = False
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # SESSION: Keep the user logged in safely
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 1209600      # 2 Weeks

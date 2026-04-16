@@ -608,26 +608,22 @@ def start_container(request):
             "pygoat/pygoat": "pygoat",
             "bkimminich/juice-shop": "juice-shop",
             "grafana/grafana:8.3.0": "grafana",
-            "vulnerables/web-dvwa": "dvwa",
+            "vulnerables/web-dvwa": "web-dvwa",
             "tiredful-api": "tiredful-api",
             "shellshock": "shellshock",
             "apache-struts": "apache-struts"
         }
 
-        app_key = body.get('appKey') or body.get('app_key')
+        app_key = body.get('appKey')
         if not app_key:
             app_key = IMAGE_TO_KEY.get(image_name)
-        elif app_key not in APP_CATALOG:
-            app_key = IMAGE_TO_KEY.get(app_key, app_key)
 
         app_info = APP_CATALOG.get(app_key)
         
         if not app_info:
-            print(f"❌ FAILED TO FIND CATALOG INFO FOR KEY: '{app_key}'")
+            print(f"FAILED TO FIND CATALOG INFO FOR KEY: '{app_key}'")
             return JsonResponse({"error": "Invalid application catalog key."}, status=400)
         
-        user_org = getattr(request.user.profile, "organization", None)
-
         db_container = Container.objects.filter(
             user=request.user, 
             description=f"Sandbox for {app_key}"
@@ -639,13 +635,8 @@ def start_container(request):
                 name=app_name,
                 description=f"Sandbox for {app_key}",
                 status="CREAT",
-                docker_container_id="",
-                organization=user_org,
+                docker_container_id=""
             )
-        else:
-            # Keep container org aligned with user's current org for admin visibility.
-            if db_container.organization != user_org:
-                db_container.organization = user_org
 
         other_containers_count = Container.objects.filter(
             user=request.user
@@ -665,77 +656,76 @@ def start_container(request):
 
         file_path = os.path.join(YAML_DIR, f"{project_name}.yml")
         network_name = f"{project_name}_default"
+        
         app_domain = config("APP_DOMAIN", default="localhost")
-
+        use_https = config("USE_HTTPS", default=False, cast=bool)
+        entrypoint = "websecure" if use_https else "web"
+        
         compose_dict = {"services": {}}
-        
         app_port = app_info.get("port", "80")
-        router_rule = f"Host(`{project_name}.{app_domain}`)"
         
+        web_labels = {
+            "traefik.enable": "true",
+            f"traefik.http.routers.{project_name}.rule": f"Host(`{project_name}.{app_domain}`)",
+            f"traefik.http.routers.{project_name}.entrypoints": entrypoint,
+            f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
+            "traefik.docker.network": network_name,
+            "wadt.user_id": user_id_str
+        }
+
+        if use_https:
+            web_labels[f"traefik.http.routers.{project_name}.tls"] = "true"
+            web_labels[f"traefik.http.routers.{project_name}.tls.certresolver"] = "myresolver"
+
         compose_dict["services"]["web"] = {
             "image": app_info["image"],
             "networks": ["default"],
-            "labels": {
-                "traefik.enable": "true",
-                f"traefik.http.routers.{project_name}.rule": router_rule,
-                f"traefik.http.routers.{project_name}.entrypoints": "websecure",
-                f"traefik.http.services.{project_name}.loadbalancer.server.port": str(app_port),
-                f"traefik.http.routers.{project_name}.tls": "true",
-                f"traefik.http.routers.{project_name}.tls.options": "default",
-                "traefik.docker.network": network_name,
-                "wadt.user_id": user_id_str
-            }
+            "labels": web_labels
         }
 
         if "environment" in app_info: compose_dict["services"]["web"]["environment"] = app_info["environment"]
         if "cap_add" in app_info: compose_dict["services"]["web"]["cap_add"] = app_info["cap_add"]
 
         terminal_info = APP_CATALOG["attacker-terminal"]
+        terminal_labels = {
+            "traefik.enable": "true",
+            f"traefik.http.routers.{project_name}-terminal.rule": f"Host(`terminal.{project_name}.{app_domain}`)",
+            f"traefik.http.routers.{project_name}-terminal.entrypoints": entrypoint,
+            f"traefik.http.services.{project_name}-terminal.loadbalancer.server.port": str(terminal_info["port"]),
+            "traefik.docker.network": network_name
+        }
+
+        if use_https:
+            terminal_labels[f"traefik.http.routers.{project_name}-terminal.tls"] = "true"
+            terminal_labels[f"traefik.http.routers.{project_name}-terminal.tls.certresolver"] = "myresolver"
+
         compose_dict["services"]["attacker"] = {
             "image": terminal_info["image"],
+            "command": terminal_info["command"],
             "networks": ["default"],
-            "labels": {
-                "traefik.enable": "true",
-                f"traefik.http.routers.{project_name}-terminal.rule": f"Host(`terminal.{project_name}.{app_domain}`)",
-                f"traefik.http.routers.{project_name}-terminal.entrypoints": "websecure",
-                f"traefik.http.services.{project_name}-terminal.loadbalancer.server.port": terminal_info["port"],
-                f"traefik.http.routers.{project_name}-terminal.tls": "true",
-                f"traefik.http.routers.{project_name}-terminal.tls.options": "default",
-                "traefik.docker.network": network_name
-            }
+            "labels": terminal_labels
         }
-        if "command" in terminal_info:
-            compose_dict["services"]["attacker"]["command"] = terminal_info["command"]
 
-        # Reuse existing compose file when present; otherwise generate it once.
-        # Always use `up -d` so missing service containers are created.
-        if not os.path.exists(file_path):
+        if os.path.exists(file_path):
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.start()
+        else:
             with open(file_path, 'w') as f:
                 yaml.dump(compose_dict, f)
+            
+            custom_docker = DockerClient(compose_files=[file_path], compose_project_name=project_name)
+            custom_docker.compose.up(detach=True)
 
-        custom_docker = DockerClient(
-            compose_files=[file_path],
-            compose_project_name=project_name,
-        )
-        custom_docker.compose.up(detach=True)
-        # 5. Mark as starting and run compose work asynchronously.
+            subprocess.run(
+                ["docker", "network", "connect", network_name, "web-app-deployment-tool-traefik-1"],
+                capture_output=True
+            )
+
         db_container.status = "STARTING"
         db_container.save()
+        log_user_action(request.user, f"Started composed project '{db_container.name}'", db_container)
 
-        threading.Thread(
-            target=_start_compose_project_async,
-            args=(
-                request.user.id,
-                db_container.id,
-                project_name,
-                db_container.name,
-                file_path,
-                network_name,
-            ),
-            daemon=True,
-        ).start()
-
-        return JsonResponse({"status": "accepted", "id": project_name}, status=202)
+        return JsonResponse({"status": "success", "id": project_name}, status=201)
         
     except Exception as e:
         print(f"Deployment Error: {str(e)}")
